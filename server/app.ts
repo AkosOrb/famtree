@@ -29,7 +29,7 @@ const canEdit = (role: Role | undefined) => role === 'owner' || role === 'editor
 
 export function createApp(trees: TreeStore, users: UserStore) {
   const app = express();
-  app.use(express.json({ limit: '20mb' }));
+  app.use(express.json({ limit: '100mb' }));
   app.use((req: Authed, _res, next) => {
     req.user = users.userForSession(readCookie(req, COOKIE));
     next();

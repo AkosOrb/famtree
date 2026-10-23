@@ -24,6 +24,7 @@ interface Props {
 const DETAIL_ZOOM = 0.4;
 const CULL_MARGIN = 200;
 const MIN_FIT_ZOOM = 0.03;
+const AVATAR = 40;
 
 export function TreeCanvas(props: Props) {
   const { tree, layout, truncated, focusRoot, onFocusOn, selectedId, focus, fitNonce, onSelect, onAddFirst } = props;
@@ -92,7 +93,10 @@ export function TreeCanvas(props: Props) {
     let target: ZoomTransform;
     if (fitK >= MIN_FIT_ZOOM) {
       target = zoomIdentity
-        .translate(size.width / 2 - (fitK * (bounds.minX + bounds.maxX)) / 2, size.height / 2 - (fitK * (bounds.minY + bounds.maxY)) / 2)
+        .translate(
+          size.width / 2 - (fitK * (bounds.minX + bounds.maxX)) / 2,
+          size.height / 2 - (fitK * (bounds.minY + bounds.maxY)) / 2,
+        )
         .scale(fitK);
     } else {
       // Too large to show legibly: show the top of the tree, centred on its oldest generation.
@@ -139,6 +143,11 @@ export function TreeCanvas(props: Props) {
   return (
     <div className="canvas">
       <svg ref={svgRef} className="tree-svg" onClick={(e) => e.target === e.currentTarget && onSelect(null)}>
+        <defs>
+          <clipPath id="avatar-clip" clipPathUnits="objectBoundingBox">
+            <circle cx={0.5} cy={0.5} r={0.5} />
+          </clipPath>
+        </defs>
         <g transform={transform.toString()}>
           <g className="edges">
             {visibleUnions.map((u) => (
@@ -173,7 +182,8 @@ export function TreeCanvas(props: Props) {
         </div>
       )}
       <div className="status">
-        {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
+        {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható
+        · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
       </div>
     </div>
   );
@@ -227,6 +237,8 @@ const PersonNode = memo(function PersonNode({
   onFocusOn: (id: Id) => void;
 }) {
   const name = fullName(person);
+  const textX = person.photo ? 22 + AVATAR : 16;
+  const maxChars = person.photo ? 15 : 20;
   return (
     <g
       className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}`}
@@ -238,12 +250,26 @@ const PersonNode = memo(function PersonNode({
     >
       <rect width={NODE_W} height={NODE_H} rx={10} className="card" />
       <rect width={6} height={NODE_H} rx={3} className="stripe" />
+      {detailed && person.photo && (
+        <>
+          <image
+            href={person.photo}
+            x={14}
+            y={(NODE_H - AVATAR) / 2}
+            width={AVATAR}
+            height={AVATAR}
+            clipPath="url(#avatar-clip)"
+            preserveAspectRatio="xMidYMid slice"
+          />
+          <circle cx={14 + AVATAR / 2} cy={NODE_H / 2} r={AVATAR / 2} className="avatar-ring" />
+        </>
+      )}
       {detailed && (
         <>
-          <text x={16} y={25} className="name">
-            {name.length > 20 ? `${name.slice(0, 19)}…` : name}
+          <text x={textX} y={25} className="name">
+            {name.length > maxChars ? `${name.slice(0, maxChars - 1)}…` : name}
           </text>
-          <text x={16} y={45} className="years">
+          <text x={textX} y={45} className="years">
             {years(person)}
           </text>
         </>

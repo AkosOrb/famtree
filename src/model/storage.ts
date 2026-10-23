@@ -7,7 +7,8 @@ import type { FamilyTree } from './types';
  */
 export interface TreeRepository {
   load(): FamilyTree | null;
-  save(tree: FamilyTree): void;
+  /** Returns false if the tree could not be stored (e.g. storage full). */
+  save(tree: FamilyTree): boolean;
 }
 
 const KEY = 'famtree:v1';
@@ -24,8 +25,10 @@ export const localRepository: TreeRepository = {
   save(tree) {
     try {
       localStorage.setItem(KEY, JSON.stringify(tree));
+      return true;
     } catch {
       // Quota exceeded or storage disabled: the app keeps working in memory.
+      return false;
     }
   },
 };

@@ -1,3 +1,4 @@
+import { isPhotoDataUrl } from '../model/photo';
 import type { FamilyTree, Gender, Id, Person, Union } from '../model/types';
 
 /**
@@ -55,7 +56,8 @@ export function isValidChange(c: unknown): c is Change {
       GENDERS.includes(v.gender as Gender) &&
       isYear(v.birthYear) &&
       isYear(v.deathYear) &&
-      (v.notes === undefined || isStr(v.notes, 10000))
+      (v.notes === undefined || isStr(v.notes, 10000)) &&
+      (v.photo === undefined || isPhotoDataUrl(v.photo))
     );
   }
   if (kind === 'union') return isIdList(v.partners, 1, 2) && isIdList(v.children, 0, 500);

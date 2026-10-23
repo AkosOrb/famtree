@@ -76,7 +76,13 @@ export function App() {
   // Local mode persists to this browser; server mode syncs with the backend.
   useEffect(() => {
     if (session) return;
-    const handle = setTimeout(() => localRepository.save(tree), 400);
+    const handle = setTimeout(() => {
+      if (!localRepository.save(tree)) {
+        setError(
+          'A böngésző tárhelye megtelt, a legutóbbi módosítás nincs elmentve. Exportáld a fát, vagy töltsd fel a szerverre.',
+        );
+      }
+    }, 400);
     return () => clearTimeout(handle);
   }, [tree, session]);
 

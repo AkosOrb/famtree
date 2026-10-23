@@ -30,6 +30,8 @@ Szerver nélkül is működik: ilyenkor a fa csak a böngészőben tárolódik.
 - **Interaktív nézet:** egérgörgővel nagyítás, húzással mozgatás, érintőképernyőn is.
 - **Szerkesztés:** személyre kattintva oldalpanel nyílik: adatok módosítása, szülő / pár / gyermek
   hozzáadása új vagy meglévő személyként, törlés.
+- **Fénykép:** személyenként feltölthető; négyzetesre vágva, 256 px-re kicsinyítve (kb. 5–20 KB) a személy
+  adatai között tárolódik, és kis kerek képként megjelenik a kártyán is.
 - **Keresés:** a felső keresőmezőből bárkire rá lehet ugrani.
 - **Visszavonás / újra:** Ctrl+Z, Ctrl+Y (vagy Ctrl+Shift+Z).
 - **Szűkített nézet:** „Kijelölt körül ±N generáció”: csak a kiválasztott személy felmenői, leszármazottai,
@@ -55,6 +57,7 @@ src/
     gedcom.ts      GEDCOM 5.5.1 import/export
     subtree.ts     személy köré szűkített részfa
     sample.ts      mintaadatok és nagy fa generátor
+    photo.ts       feltöltött kép vágása, kicsinyítése
   layout/     elrendezés
     layout.ts      rétegzett (Sugiyama-jellegű) elrendezés
     spatialGrid.ts térbeli rács a látható elemek gyors lekérdezéséhez

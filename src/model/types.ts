@@ -10,6 +10,8 @@ export interface Person {
   birthYear?: number;
   deathYear?: number;
   notes?: string;
+  /** Small square JPEG as a data URL (see model/photo.ts). */
+  photo?: string;
 }
 
 /**

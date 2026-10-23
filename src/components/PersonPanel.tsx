@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { childrenOf, parentsOf, partnersOf, siblingsOf, type TreeIndex } from '../model/graph';
 import {
   addChild,
@@ -11,6 +11,7 @@ import {
   updatePerson,
 } from '../model/operations';
 import { fullName, type FamilyTree, type Gender, type Id, type PersonInput } from '../model/types';
+import { photoFromFile } from '../model/photo';
 import { PersonPicker } from './PersonPicker';
 import { askConfirm } from './ConfirmDialog';
 
@@ -106,6 +107,19 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
           ×
         </button>
       </header>
+
+      <PhotoField
+        photo={person.photo}
+        initials={(person.lastName[0] ?? '') + (person.firstName[0] ?? '')}
+        gender={person.gender}
+        readOnly={readOnly}
+        onChange={(photo) =>
+          edit(
+            (t) => updatePerson(t, personId, { photo }),
+            (t) => t,
+          )
+        }
+      />
 
       <form className="person-form" onSubmit={save}>
         <fieldset disabled={readOnly}>
@@ -366,6 +380,74 @@ function AddRelativeForm({
         </form>
       ) : (
         <PersonPicker tree={tree} exclude={exclude} onPick={linkExisting} autoFocus />
+      )}
+    </div>
+  );
+}
+
+function PhotoField({
+  photo,
+  initials,
+  gender,
+  readOnly,
+  onChange,
+}: {
+  photo?: string;
+  initials: string;
+  gender: Gender;
+  readOnly?: boolean;
+  onChange: (photo: string | undefined) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      onChange(await photoFromFile(file));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'A képet nem sikerült feltölteni.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (readOnly && !photo) return null;
+  return (
+    <div className={`photo-row gender-${gender}`}>
+      {photo ? (
+        <img className="photo" src={photo} alt="Fénykép" />
+      ) : (
+        <div className="photo" aria-hidden="true">
+          {initials.toUpperCase() || '?'}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="photo-actions">
+          <button type="button" onClick={() => input.current?.click()} disabled={busy}>
+            {busy ? 'Feldolgozás…' : photo ? 'Fénykép cseréje' : 'Fénykép feltöltése'}
+          </button>
+          {photo && (
+            <button type="button" className="danger" onClick={() => onChange(undefined)}>
+              Fénykép eltávolítása
+            </button>
+          )}
+          {!photo && <small>A kép négyzetesre vágva, kicsinyítve tárolódik.</small>}
+          {error && <small className="error">{error}</small>}
+          <input
+            ref={input}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void upload(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
       )}
     </div>
   );

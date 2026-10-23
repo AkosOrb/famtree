@@ -22,5 +22,9 @@ describe('changes', () => {
     expect(isValidChange({ kind: 'person', id: 'a', value: { id: 'b', firstName: 'A', lastName: '', gender: 'male' } })).toBe(false);
     expect(isValidChange({ kind: 'union', id: 'u', value: { id: 'u', partners: [], children: [] } })).toBe(false);
     expect(isValidChange({ kind: 'evil', id: 'u', value: null })).toBe(false);
+    const person = { id: 'a', firstName: 'A', lastName: '', gender: 'male' };
+    expect(isValidChange({ kind: 'person', id: 'a', value: { ...person, photo: 'data:image/jpeg;base64,AAAA' } })).toBe(true);
+    expect(isValidChange({ kind: 'person', id: 'a', value: { ...person, photo: 'https://evil.example/x.jpg' } })).toBe(false);
+    expect(isValidChange({ kind: 'person', id: 'a', value: { ...person, photo: 'data:image/svg+xml;base64,AAAA' } })).toBe(false);
   });
 });
