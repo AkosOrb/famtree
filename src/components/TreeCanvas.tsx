@@ -17,7 +17,7 @@ interface Props {
   focus: Focus | null;
   fitNonce: number;
   onSelect: (id: Id | null) => void;
-  onAddFirst: () => void;
+  onAddFirst?: () => void;
 }
 
 /** Below this zoom level nodes are drawn without text (level of detail). */
@@ -165,9 +165,11 @@ export function TreeCanvas(props: Props) {
       {count === 0 && (
         <div className="empty">
           <p>A családfa még üres.</p>
-          <button className="primary" onClick={onAddFirst}>
-            Első személy hozzáadása
-          </button>
+          {onAddFirst && (
+            <button className="primary" onClick={onAddFirst}>
+              Első személy hozzáadása
+            </button>
+          )}
         </div>
       )}
       <div className="status">

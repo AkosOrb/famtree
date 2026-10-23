@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { ViewDepth } from '../App';
 import { exportGedcom, importGedcom } from '../model/gedcom';
+import type { SyncStatus } from '../sync/useServerSync';
 import { generateTree, sampleTree } from '../model/sample';
 import { parseTree } from '../model/storage';
 import { emptyTree, type FamilyTree, type Id } from '../model/types';
@@ -19,7 +20,21 @@ interface Props {
   onError: (message: string) => void;
   viewDepth: ViewDepth;
   onViewDepth: (depth: ViewDepth) => void;
+  readOnly: boolean;
+  treeName?: string;
+  syncStatus: SyncStatus | 'local' | 'loading' | 'readonly';
+  onShare: () => void;
 }
+
+const STATUS_LABEL: Record<Props['syncStatus'], string> = {
+  local: 'Csak ebben a böngészőben',
+  loading: 'Betöltés…',
+  saved: 'Mentve a szerveren',
+  saving: 'Mentés…',
+  offline: 'Nincs kapcsolat, újrapróbálom…',
+  error: 'Mentési hiba',
+  readonly: 'Csak olvasható',
+};
 
 function download(content: string, type: string, filename: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -31,8 +46,8 @@ function download(content: string, type: string, filename: string) {
 }
 
 export function Toolbar(props: Props) {
-  const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError, viewDepth, onViewDepth } =
-    props;
+  const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
+  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare } = props;
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportAs = (format: string) => {
@@ -59,18 +74,25 @@ export function Toolbar(props: Props) {
 
   return (
     <header className="toolbar">
-      <h1>Családfa</h1>
+      <div className="title">
+        <h1>{treeName ?? 'Családfa'}</h1>
+        <span className={`sync sync-${syncStatus}`}>{STATUS_LABEL[syncStatus]}</span>
+      </div>
       <div className="toolbar-search">
         <PersonPicker tree={tree} onPick={onSelect} placeholder="Személy keresése…" />
       </div>
       <div className="toolbar-actions">
-        <button onClick={onAddPerson}>+ Személy</button>
-        <button onClick={onUndo} disabled={!canUndo} title="Visszavonás (Ctrl+Z)">
-          ↶
-        </button>
-        <button onClick={onRedo} disabled={!canRedo} title="Újra (Ctrl+Y)">
-          ↷
-        </button>
+        {!readOnly && (
+          <>
+            <button onClick={onAddPerson}>+ Személy</button>
+            <button onClick={onUndo} disabled={!canUndo} title="Visszavonás (Ctrl+Z)">
+              ↶
+            </button>
+            <button onClick={onRedo} disabled={!canRedo} title="Újra (Ctrl+Y)">
+              ↷
+            </button>
+          </>
+        )}
         <button onClick={onFit} title="Teljes fa megjelenítése">
           Igazítás
         </button>
@@ -85,30 +107,35 @@ export function Toolbar(props: Props) {
           <option value="json">JSON</option>
           <option value="ged">GEDCOM (.ged)</option>
         </select>
-        <button onClick={() => fileRef.current?.click()}>Importálás</button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/json,.json,.ged,.gedcom"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void importJson(file);
-            e.target.value = '';
-          }}
-        />
-        <select
-          value=""
-          onChange={(e) => loadDemo(e.target.value)}
-          aria-label="Minta adatok betöltése"
-        >
-          <option value="">Minta adatok…</option>
-          <option value="sample">Kis mintacsalád</option>
-          <option value="500">Generált: 500 fő</option>
-          <option value="2000">Generált: 2000 fő</option>
-          <option value="5000">Generált: 5000 fő</option>
-          <option value="empty">Üres fa</option>
-        </select>
+        {!readOnly && (
+          <>
+            <button onClick={() => fileRef.current?.click()}>Importálás</button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json,.ged,.gedcom"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importJson(file);
+                e.target.value = '';
+              }}
+            />
+            <select value="" onChange={(e) => loadDemo(e.target.value)} aria-label="Minta adatok betöltése">
+              <option value="">Minta adatok…</option>
+              <option value="sample">Kis mintacsalád</option>
+              <option value="500">Generált: 500 fő</option>
+              <option value="2000">Generált: 2000 fő</option>
+              <option value="5000">Generált: 5000 fő</option>
+              <option value="empty">Üres fa</option>
+            </select>
+          </>
+        )}
+        {syncStatus !== 'readonly' && syncStatus !== 'loading' && (
+          <button className="primary" onClick={onShare}>
+            Megosztás
+          </button>
+        )}
       </div>
     </header>
   );

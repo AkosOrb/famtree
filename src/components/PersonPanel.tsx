@@ -39,9 +39,10 @@ interface Props {
   onSelect: (id: Id) => void;
   onFocusOn: (id: Id) => void;
   onClose: () => void;
+  readOnly?: boolean;
 }
 
-export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, onClose }: Props) {
+export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, onClose, readOnly }: Props) {
   const person = tree.persons[personId];
   const [draft, setDraft] = useState(() => ({
     firstName: person.firstName,
@@ -89,7 +90,10 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
 
   const remove = () => {
     if (!confirm(`Biztosan törlöd: ${fullName(person)}? A kapcsolatai is törlődnek.`)) return;
-    edit((t) => removePerson(t, personId), (t) => t);
+    edit(
+      (t) => removePerson(t, personId),
+      (t) => t,
+    );
     onClose();
   };
 
@@ -103,51 +107,55 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
       </header>
 
       <form className="person-form" onSubmit={save}>
-        <div className="row">
+        <fieldset disabled={readOnly}>
+          <div className="row">
+            <label>
+              Vezetéknév
+              <input value={draft.lastName} onChange={(e) => setDraft({ ...draft, lastName: e.target.value })} />
+            </label>
+            <label>
+              Keresztnév
+              <input value={draft.firstName} onChange={(e) => setDraft({ ...draft, firstName: e.target.value })} />
+            </label>
+          </div>
+          <div className="row">
+            <label>
+              Nem
+              <select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as Gender })}>
+                {GENDERS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Született
+              <input
+                inputMode="numeric"
+                value={draft.birthYear}
+                onChange={(e) => setDraft({ ...draft, birthYear: e.target.value })}
+              />
+            </label>
+            <label>
+              Elhunyt
+              <input
+                inputMode="numeric"
+                value={draft.deathYear}
+                onChange={(e) => setDraft({ ...draft, deathYear: e.target.value })}
+              />
+            </label>
+          </div>
           <label>
-            Vezetéknév
-            <input value={draft.lastName} onChange={(e) => setDraft({ ...draft, lastName: e.target.value })} />
+            Megjegyzés
+            <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
           </label>
-          <label>
-            Keresztnév
-            <input value={draft.firstName} onChange={(e) => setDraft({ ...draft, firstName: e.target.value })} />
-          </label>
-        </div>
-        <div className="row">
-          <label>
-            Nem
-            <select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as Gender })}>
-              {GENDERS.map((g) => (
-                <option key={g.value} value={g.value}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Született
-            <input
-              inputMode="numeric"
-              value={draft.birthYear}
-              onChange={(e) => setDraft({ ...draft, birthYear: e.target.value })}
-            />
-          </label>
-          <label>
-            Elhunyt
-            <input
-              inputMode="numeric"
-              value={draft.deathYear}
-              onChange={(e) => setDraft({ ...draft, deathYear: e.target.value })}
-            />
-          </label>
-        </div>
-        <label>
-          Megjegyzés
-          <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
-        </label>
-        <button type="submit" className="primary" disabled={!dirty}>
-          Mentés
-        </button>
+          {!readOnly && (
+            <button type="submit" className="primary" disabled={!dirty}>
+              Mentés
+            </button>
+          )}
+        </fieldset>
       </form>
 
       <section className="relatives">
@@ -157,41 +165,45 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
         <RelativeList title="Testvérek" ids={relatives.siblings} tree={tree} onSelect={onSelect} />
       </section>
 
-      <section className="add-relative">
-        <div className="button-row">
-          {(['parent', 'partner', 'child'] as Relation[]).map((r) => (
-            <button
-              key={r}
-              className={adding === r ? 'active' : ''}
-              disabled={r === 'parent' && relatives.parents.length >= 2}
-              onClick={() => setAdding(adding === r ? null : r)}
-            >
-              + {RELATION_LABEL[r]}
-            </button>
-          ))}
-        </div>
-        {adding && (
-          <AddRelativeForm
-            key={adding}
-            relation={adding}
-            tree={tree}
-            personId={personId}
-            partners={relatives.partners}
-            exclude={new Set([personId, ...relatives.parents, ...relatives.partners, ...relatives.children])}
-            edit={edit}
-            onDone={(id) => {
-              setAdding(null);
-              if (id) onSelect(id);
-            }}
-          />
-        )}
-      </section>
+      {!readOnly && (
+        <section className="add-relative">
+          <div className="button-row">
+            {(['parent', 'partner', 'child'] as Relation[]).map((r) => (
+              <button
+                key={r}
+                className={adding === r ? 'active' : ''}
+                disabled={r === 'parent' && relatives.parents.length >= 2}
+                onClick={() => setAdding(adding === r ? null : r)}
+              >
+                + {RELATION_LABEL[r]}
+              </button>
+            ))}
+          </div>
+          {adding && (
+            <AddRelativeForm
+              key={adding}
+              relation={adding}
+              tree={tree}
+              personId={personId}
+              partners={relatives.partners}
+              exclude={new Set([personId, ...relatives.parents, ...relatives.partners, ...relatives.children])}
+              edit={edit}
+              onDone={(id) => {
+                setAdding(null);
+                if (id) onSelect(id);
+              }}
+            />
+          )}
+        </section>
+      )}
 
       <button onClick={() => onFocusOn(personId)}>Nézet erre a személyre szűkítve</button>
 
-      <button className="danger" onClick={remove}>
-        Személy törlése
-      </button>
+      {!readOnly && (
+        <button className="danger" onClick={remove}>
+          Személy törlése
+        </button>
+      )}
     </aside>
   );
 }
