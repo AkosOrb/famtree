@@ -688,9 +688,46 @@ function buildGeometry(tree: FamilyTree, layers: Block[][]): Layout {
     });
   }
 
+  separateBars(unions, persons);
+
   return {
     persons,
     unions,
     bounds: { minX: 0, minY: 0, maxX: maxX - minX, maxY: layers.length * ROW_H - (ROW_H - NODE_H) },
   };
+}
+
+/** Horizontal room kept between two sibling lines drawn at the same height. */
+const BAR_GAP = 24;
+
+/**
+ * Gives sibling lines that overlap horizontally their own heights, so the lines
+ * of two families never merge into one and suggest a relationship that does not
+ * exist (as when the families are only linked by a later marriage).
+ */
+function separateBars(unions: UnionGeometry[], persons: Map<Id, PersonBox>) {
+  const byGap = new Map<number, { union: UnionGeometry; from: number; to: number }[]>();
+  for (const union of unions) {
+    const kids = union.children.map((c) => persons.get(c)).filter((p): p is PersonBox => !!p);
+    if (!kids.length) continue;
+    const xs = [union.x, ...kids.map((k) => k.x)];
+    const bars = byGap.get(union.barY) ?? [];
+    bars.push({ union, from: Math.min(...xs), to: Math.max(...xs) });
+    byGap.set(union.barY, bars);
+  }
+  for (const [mid, bars] of byGap) {
+    bars.sort((a, b) => a.from - b.from);
+    const laneEnds: number[] = [];
+    const lanes = bars.map((bar) => {
+      let lane = laneEnds.findIndex((end) => end + BAR_GAP <= bar.from);
+      if (lane < 0) lane = laneEnds.push(bar.to) - 1;
+      else laneEnds[lane] = bar.to;
+      return lane;
+    });
+    if (laneEnds.length < 2) continue;
+    const spacing = Math.min(16, (ROW_H - NODE_H - 30) / (laneEnds.length - 1));
+    bars.forEach((bar, i) => {
+      bar.union.barY = mid + (lanes[i] - (laneEnds.length - 1) / 2) * spacing;
+    });
+  }
 }
