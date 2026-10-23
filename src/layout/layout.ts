@@ -454,6 +454,31 @@ function reduceCrossings(
     const left = new Set(parentUnions(layer[i - 1]));
     return parentUnions(layer[i + 1]).some((pu) => left.has(pu));
   };
+  /**
+   * Cards of other families inside the sibling groups of these blocks' members,
+   * where a sibling line would run over them.
+   */
+  const strayCards = (blocks: Block[], slotOf: (m: Id) => number) => {
+    const unions = new Set(blocks.flatMap(parentUnions));
+    let n = 0;
+    for (const uid of unions) {
+      const kids = tree.unions[uid].children.filter((c) => blockOf.get(c)!.gen === blocks[0].gen);
+      if (kids.length < 2) continue;
+      const slots = kids.map(slotOf);
+      const lo = Math.min(...slots);
+      const hi = Math.max(...slots);
+      const family = new Set(kids);
+      for (const c of kids) {
+        for (const pid of index.partnerUnions.get(c) ?? []) {
+          for (const p of tree.unions[pid].partners) {
+            if (blockOf.get(p)!.gen === blocks[0].gen && slotOf(p) > lo && slotOf(p) < hi) family.add(p);
+          }
+        }
+      }
+      n += hi - lo + 1 - family.size;
+    }
+    return n;
+  };
   /** Crossings between the edges of one block and the rest of its row. */
   const crossingsOf = (layer: Block[], b: Block) => {
     const own = (m: Id) => slot.get(m)!;
@@ -534,7 +559,14 @@ function reduceCrossings(
         const own = (m: Id) => slot.get(m)!;
         const a = edgesOf(layer[i], own);
         const b = edgesOf(layer[i + 1], own);
-        if (between(b, a) < between(a, b)) {
+        const shift = (m: Id) =>
+          layer[i].members.includes(m)
+            ? own(m) + layer[i + 1].members.length
+            : layer[i + 1].members.includes(m)
+              ? own(m) - layer[i].members.length
+              : own(m);
+        const kept = between(a, b) + strayCards([layer[i], layer[i + 1]], own);
+        if (between(b, a) + strayCards([layer[i], layer[i + 1]], shift) < kept) {
           [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
           if (together && (splitsSiblings(layer, i) || splitsSiblings(layer, i + 1))) {
             [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
