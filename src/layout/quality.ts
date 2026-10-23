@@ -30,3 +30,30 @@ export function countCrossings(tree: FamilyTree, layout: Layout): number {
   void tree;
   return crossings;
 }
+
+/**
+ * Number of cards that a sibling line runs over although they are neither one
+ * of those siblings nor married to one of them, so the drawing suggests a
+ * relationship that does not exist.
+ */
+export function countIntrusions(tree: FamilyTree, layout: Layout): number {
+  const rows = new Map<number, { id: string; x: number }[]>();
+  for (const p of layout.persons.values()) {
+    const row = rows.get(p.y) ?? [];
+    row.push(p);
+    rows.set(p.y, row);
+  }
+  let intrusions = 0;
+  for (const u of layout.unions) {
+    const kids = u.children.map((c) => layout.persons.get(c)).filter((k) => !!k);
+    if (kids.length < 2) continue;
+    const family = new Set(u.children);
+    for (const other of Object.values(tree.unions)) {
+      if (other.partners.some((p) => family.has(p))) other.partners.forEach((p) => family.add(p));
+    }
+    const lo = Math.min(...kids.map((k) => k.x));
+    const hi = Math.max(...kids.map((k) => k.x));
+    for (const p of rows.get(kids[0].y) ?? []) if (p.x > lo && p.x < hi && !family.has(p.id)) intrusions++;
+  }
+  return intrusions;
+}
