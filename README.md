@@ -53,6 +53,13 @@ Privát repóhoz a GitHub Pages fizetős csomagot (GitHub Pro) igényel; nyilvá
 - **Fiókok:** regisztráció és bejelentkezés e-mail címmel és jelszóval. Bejelentkezve a feltöltött fák a
   fiókhoz kerülnek („Saját családfáim” lista), a tulajdonos link nélkül is eléri őket, és bármikor új
   linket készíthet, amivel a régi szerkesztői vagy csak olvasható link megszűnik.
+- **Adatvédelem:** a csak olvasható linken alapból rejtve maradnak az élő személyek (nincs halálozási év,
+  és 100 évnél fiatalabb vagy ismeretlen a születési éve); a fényképek és a megjegyzések is elrejthetők, egy-egy
+  személy pedig az adatlapján „Rejtett”-nek jelölhető. A szűrést a szerver végzi, a rejtett adat el sem jut a
+  böngészőig. A 🔒 gomb az adatkezelési tájékoztatót és a helyi (böngészőben tárolt) fa törlését nyitja meg.
+- **Fiók és adatok:** jelszócsere (a többi eszközön kijelentkeztet), kijelentkezés minden eszközről, minden adat
+  letöltése egy JSON fájlban, a fiók és a hozzá tartozó fák végleges törlése. Regisztrációkor el kell fogadni a
+  tájékoztatót; az elfogadás ideje tárolódik.
 - **Mintaadatok:** kis mintacsalád, illetve 500 / 2000 / 5000 fős generált fa a teljesítmény kipróbálásához.
 
 ## Felépítés
@@ -93,6 +100,20 @@ server/       Express + SQLite (better-sqlite3) API
 - A jelszavak scrypt-tel, egyedi sóval hash-elve tárolódnak; a munkamenet-tokenek is csak hash-ként.
   A bejelentkezés IP-nként percenként 10 próbálkozásra korlátozott.
 - HTTPS-t végző fordított proxy mögött állítsd be a `TRUST_PROXY=1` változót, hogy a süti `Secure` legyen.
+
+### Biztonság
+
+- Biztonsági fejlécek minden válaszon: szigorú Content-Security-Policy (csak saját forrásból töltött szkript és
+  stílus, beágyazás tiltva), `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `Permissions-Policy`,
+  HTTPS esetén HSTS; az API válaszai nem kerülnek gyorsítótárba. A statikus (GitHub Pages) változat ugyanezt a
+  CSP-t `<meta>` címkében kapja meg.
+- Más oldalról érkező módosító kéréseket (eltérő `Origin`) a szerver elutasítja (CSRF elleni védelem a
+  SameSite süti mellett).
+- Korlátok IP-nként: API 600 kérés/perc, bejelentkezés, regisztráció és fiókműveletek 10/perc, fafeltöltés 30/óra.
+- A beérkező rekordokat a szerver ellenőrzi, és csak az ismert mezőket tárolja; az importált JSON fájlok is
+  ellenőrzésen mennek át.
+- Megőrzés: a szinkronizálási változásnapló 30 napig marad meg (ennél régebbi állapotról a kliens a teljes fát
+  tölti újra), a lejárt munkamenetek óránként törlődnek.
 
 ### Adatmodell
 

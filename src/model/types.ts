@@ -12,6 +12,10 @@ export interface Person {
   notes?: string;
   /** Small square JPEG as a data URL (see model/photo.ts). */
   photo?: string;
+  /** Always hidden from read-only (view link) visitors, whatever the tree's privacy settings. */
+  private?: boolean;
+  /** Set by the server on records a viewer may not see in full (see model/privacy.ts). */
+  redacted?: boolean;
 }
 
 /**

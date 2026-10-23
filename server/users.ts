@@ -31,6 +31,12 @@ export class UserStore {
         expires_at TEXT NOT NULL
       );
     `);
+    // When the user accepted the privacy notice (added later; older accounts have none).
+    const columns = this.db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
+    if (!columns.some((c) => c.name === 'privacy_accepted_at')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN privacy_accepted_at TEXT');
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)');
   }
 
   async register(email: string, name: string, password: string): Promise<User | null> {
@@ -39,10 +45,14 @@ export class UserStore {
     const salt = randomBytes(16);
     const passwordHash = await scryptAsync(password, salt, 32);
     const user: User = { id: randomBytes(9).toString('base64url'), email: normalized, name: name.trim() };
+    const now = new Date().toISOString();
     try {
       this.db
-        .prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)')
-        .run(user.id, user.email, user.name, salt, passwordHash, new Date().toISOString());
+        .prepare(
+          `INSERT INTO users (id, email, name, password_salt, password_hash, created_at, privacy_accepted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(user.id, user.email, user.name, salt, passwordHash, now, now);
     } catch {
       return null; // Lost a race on the unique email.
     }
@@ -59,6 +69,38 @@ export class UserStore {
     const candidate = await scryptAsync(password, row?.password_salt ?? Buffer.alloc(16), 32);
     if (!row || !timingSafeEqual(candidate, row.password_hash)) return null;
     return { id: row.id, email: row.email, name: row.name };
+  }
+
+  async checkPassword(userId: string, password: string): Promise<boolean> {
+    const row = this.db.prepare('SELECT password_salt, password_hash FROM users WHERE id = ?').get(userId) as
+      | { password_salt: Buffer; password_hash: Buffer }
+      | undefined;
+    if (!row) return false;
+    return timingSafeEqual(await scryptAsync(password, row.password_salt, 32), row.password_hash);
+  }
+
+  /** Sets a new password and signs out every session, so a leaked one stops working. */
+  async changePassword(userId: string, password: string) {
+    const salt = randomBytes(16);
+    const passwordHash = await scryptAsync(password, salt, 32);
+    this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?')
+        .run(salt, passwordHash, userId);
+      this.deleteAllSessions(userId);
+    })();
+  }
+
+  /** What the account itself stores, for the data export. */
+  accountInfo(userId: string): { email: string; name: string; createdAt: string; privacyAcceptedAt: string | null } {
+    const row = this.db
+      .prepare('SELECT email, name, created_at, privacy_accepted_at FROM users WHERE id = ?')
+      .get(userId) as { email: string; name: string; created_at: string; privacy_accepted_at: string | null };
+    return { email: row.email, name: row.name, createdAt: row.created_at, privacyAcceptedAt: row.privacy_accepted_at };
+  }
+
+  deleteUser(userId: string) {
+    this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
 
   createSession(userId: string): { token: string; expires: Date } {
@@ -82,5 +124,13 @@ export class UserStore {
 
   deleteSession(token: string) {
     this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token));
+  }
+
+  deleteAllSessions(userId: string) {
+    this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  }
+
+  pruneSessions() {
+    this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
   }
 }

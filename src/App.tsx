@@ -3,6 +3,7 @@ import { PersonPanel } from './components/PersonPanel';
 import { AccountDialog } from './components/AccountDialog';
 import { ConfirmHost } from './components/ConfirmDialog';
 import { PathCard } from './components/PathCard';
+import { PrivacyDialog } from './components/PrivacyDialog';
 import { ShareDialog } from './components/ShareDialog';
 import { Toolbar } from './components/Toolbar';
 import { TreeCanvas } from './components/TreeCanvas';
@@ -12,6 +13,7 @@ import { addPerson, TreeError } from './model/operations';
 import { sampleTree } from './model/sample';
 import { findPath } from './model/relationship';
 import { focusSubtree } from './model/subtree';
+import { DEFAULT_PRIVACY, type PrivacySettings } from './model/privacy';
 import { localRepository } from './model/storage';
 import { emptyTree, type FamilyTree, type Id } from './model/types';
 import { api, sessionFromUrl, shareUrl, type Role, type ServerSession, type User } from './sync/api';
@@ -31,6 +33,8 @@ interface RemoteTree {
   name: string;
   role: Role;
   initial: { tree: FamilyTree; version: number };
+  privacy?: PrivacySettings;
+  canSetPrivacy?: boolean;
 }
 
 export function App() {
@@ -46,6 +50,7 @@ export function App() {
   const readOnly = loading || remote?.role === 'viewer';
   const [shareOpen, setShareOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   /** undefined while unknown; null when signed out or no server is running. */
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [serverAvailable, setServerAvailable] = useState(false);
@@ -108,7 +113,13 @@ export function App() {
       .load(session)
       .then((r) => {
         dispatch({ type: 'replace', tree: r.tree });
-        setRemote({ name: r.name, role: r.role, initial: { tree: r.tree, version: r.version } });
+        setRemote({
+          name: r.name,
+          role: r.role,
+          initial: { tree: r.tree, version: r.version },
+          privacy: r.privacy,
+          canSetPrivacy: r.canSetPrivacy,
+        });
         setFitNonce((n) => n + 1);
       })
       .catch((e: Error) => {
@@ -137,7 +148,13 @@ export function App() {
     const r = await api.create(name, tree);
     window.history.replaceState(null, '', shareUrl(r.id, r.editKey));
     setSession({ treeId: r.id, key: r.editKey });
-    setRemote({ name, role: user ? 'owner' : 'editor', initial: { tree, version: r.version } });
+    setRemote({
+      name,
+      role: user ? 'owner' : 'editor',
+      initial: { tree, version: r.version },
+      privacy: DEFAULT_PRIVACY,
+      canSetPrivacy: true,
+    });
   };
 
   useEffect(() => {
@@ -242,6 +259,7 @@ export function App() {
         onShare={serverAvailable ? () => setShareOpen(true) : undefined}
         user={user}
         onAccount={serverAvailable ? () => setAccountOpen(true) : undefined}
+        onPrivacy={() => setPrivacyOpen(true)}
       />
       <main className="main">
         <TreeCanvas
@@ -294,6 +312,9 @@ export function App() {
           onUpload={upload}
           onClose={() => setShareOpen(false)}
           signedIn={!!user}
+          privacy={remote?.privacy}
+          canSetPrivacy={!!remote?.canSetPrivacy}
+          onPrivacy={(privacy) => setRemote((r) => r && { ...r, privacy })}
           onSessionKey={(key) => {
             window.history.replaceState(null, '', shareUrl(session!.treeId, key));
             setSession({ treeId: session!.treeId, key });
@@ -309,9 +330,11 @@ export function App() {
             // A tree that failed to load for lack of access may open now.
             if (u && session && !remote) window.location.reload();
           }}
+          onShowPrivacy={() => setPrivacyOpen(true)}
           onClose={() => setAccountOpen(false)}
         />
       )}
+      {privacyOpen && <PrivacyDialog serverAvailable={serverAvailable} onClose={() => setPrivacyOpen(false)} />}
       <ConfirmHost />
     </div>
   );

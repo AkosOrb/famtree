@@ -10,7 +10,17 @@ const dbFile = resolve(process.env.DB_FILE ?? 'data/famtree.db');
 mkdirSync(dirname(dbFile), { recursive: true });
 
 const db = openDatabase(dbFile);
-const app = createApp(new TreeStore(db), new UserStore(db));
+const trees = new TreeStore(db);
+const users = new UserStore(db);
+const app = createApp(trees, users);
+
+// Retention: expired sessions and old change log entries are removed hourly.
+const sweep = () => {
+  trees.pruneChangeLog();
+  users.pruneSessions();
+};
+sweep();
+setInterval(sweep, 3600_000).unref();
 // Behind a reverse proxy (HTTPS termination), trust it so secure cookies and req.ip work.
 if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
 
