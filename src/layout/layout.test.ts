@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { generateTree, inLawTree, sampleTree } from '../model/sample';
 import { computeLayout, NODE_W, PARTNER_GAP } from './layout';
 import { countCrossings, countIntrusions } from './quality';
-import { addChild, addParent, addPartner } from '../model/operations';
+import { addChild, addParent, addPartner, addPerson, linkPartners } from '../model/operations';
+import { emptyTree } from '../model/types';
 
 function assertNoOverlap(layout: ReturnType<typeof computeLayout>) {
   const rows = new Map<number, number[]>();
@@ -90,5 +91,53 @@ describe('layout with families that married in', () => {
         if (a !== b && a.y === b.y) expect(a.to < b.from || b.to < a.from).toBe(true);
       }
     }
+  });
+
+  it('keeps a younger sibling next to their siblings when two families are linked by a later marriage', () => {
+    // Two lines of grandparents, each with a child who married; their grandchildren
+    // marry each other. A single uncle on one side must not be pushed past the
+    // other family, which would cross the lines of both.
+    let t = emptyTree();
+    const person = (lastName: string, firstName: string, gender: 'male' | 'female') => ({
+      lastName,
+      firstName,
+      gender,
+    });
+    const add = (name: string, gender: 'male' | 'female') => {
+      let id: string;
+      [t, id] = addPerson(t, person('X', name, gender));
+      return id;
+    };
+    const couple = (a: string, b: string) => {
+      const x = add(a, 'male');
+      const y = add(b, 'female');
+      [t] = linkPartners(t, x, y);
+      return [x, y] as const;
+    };
+    const child = (parents: readonly [string, string], name: string, gender: 'male' | 'female') => {
+      let id: string;
+      [t, id] = addChild(t, parents[0], person('X', name, gender), parents[1]);
+      return id;
+    };
+    const g1 = couple('G1', 'G1w');
+    const g2 = couple('G2', 'G2w');
+    const g3 = couple('G3', 'G3w');
+    const g4 = couple('G4', 'G4w');
+    const wifeA = child(g1, 'A wife', 'female');
+    const husbandA = child(g2, 'A', 'male');
+    child(g2, 'Uncle', 'male');
+    const husbandB = child(g3, 'B', 'male');
+    const wifeB = child(g4, 'B wife', 'female');
+    [t] = linkPartners(t, wifeA, husbandA);
+    [t] = linkPartners(t, husbandB, wifeB);
+    const cousin = child([husbandA, wifeA], 'C1', 'male');
+    child([husbandA, wifeA], 'C2', 'male');
+    const bride = child([husbandB, wifeB], 'D1', 'female');
+    child([husbandB, wifeB], 'D2', 'male');
+    [t] = linkPartners(t, cousin, bride);
+    child([cousin, bride], 'E', 'male');
+    const layout = computeLayout(t);
+    expect(countCrossings(t, layout)).toBe(0);
+    expect(countIntrusions(t, layout)).toBe(0);
   });
 });
