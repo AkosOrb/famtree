@@ -1,4 +1,6 @@
 import { useRef } from 'react';
+import type { ViewDepth } from '../App';
+import { exportGedcom, importGedcom } from '../model/gedcom';
 import { generateTree, sampleTree } from '../model/sample';
 import { parseTree } from '../model/storage';
 import { emptyTree, type FamilyTree, type Id } from '../model/types';
@@ -15,25 +17,33 @@ interface Props {
   onReplace: (tree: FamilyTree) => void;
   onFit: () => void;
   onError: (message: string) => void;
+  viewDepth: ViewDepth;
+  onViewDepth: (depth: ViewDepth) => void;
+}
+
+function download(content: string, type: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function Toolbar(props: Props) {
-  const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
+  const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError, viewDepth, onViewDepth } =
+    props;
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'csaladfa.json';
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportAs = (format: string) => {
+    if (format === 'json') download(JSON.stringify(tree, null, 2), 'application/json', 'csaladfa.json');
+    else if (format === 'ged') download(exportGedcom(tree), 'text/plain', 'csaladfa.ged');
   };
 
   const importJson = async (file: File) => {
     try {
-      onReplace(parseTree(await file.text()));
+      const text = await file.text();
+      onReplace(/\.ged(com)?$/i.test(file.name) ? importGedcom(text) : parseTree(text));
     } catch (e) {
       onError(e instanceof Error ? e.message : 'A fájl nem olvasható.');
     }
@@ -64,12 +74,22 @@ export function Toolbar(props: Props) {
         <button onClick={onFit} title="Teljes fa megjelenítése">
           Igazítás
         </button>
-        <button onClick={exportJson}>Exportálás</button>
+        <select value={viewDepth} onChange={(e) => onViewDepth(Number(e.target.value) as ViewDepth)} aria-label="Nézet">
+          <option value={0}>Teljes fa</option>
+          <option value={2}>Kijelölt körül: ±2 generáció</option>
+          <option value={3}>Kijelölt körül: ±3 generáció</option>
+          <option value={5}>Kijelölt körül: ±5 generáció</option>
+        </select>
+        <select value="" onChange={(e) => exportAs(e.target.value)} aria-label="Exportálás">
+          <option value="">Exportálás…</option>
+          <option value="json">JSON</option>
+          <option value="ged">GEDCOM (.ged)</option>
+        </select>
         <button onClick={() => fileRef.current?.click()}>Importálás</button>
         <input
           ref={fileRef}
           type="file"
-          accept="application/json,.json"
+          accept="application/json,.json,.ged,.gedcom"
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];

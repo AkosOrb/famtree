@@ -24,7 +24,9 @@ npm run build    # éles build a dist/ mappába
   hozzáadása új vagy meglévő személyként, törlés.
 - **Keresés:** a felső keresőmezőből bárkire rá lehet ugrani.
 - **Visszavonás / újra:** Ctrl+Z, Ctrl+Y (vagy Ctrl+Shift+Z).
-- **Mentés:** automatikusan a böngésző localStorage-ába; JSON export és import.
+- **Szűkített nézet:** „Kijelölt körül ±N generáció”: csak a kiválasztott személy felmenői, leszármazottai,
+  párjai és testvérei látszanak. A ⊕ jelvény mutatja, kinek vannak rejtett rokonai; rákattintva oda ugrik a nézet.
+- **Mentés:** automatikusan a böngésző localStorage-ába; JSON és GEDCOM (.ged) export és import.
 - **Mintaadatok:** kis mintacsalád, illetve 500 / 2000 / 5000 fős generált fa a teljesítmény kipróbálásához.
 
 ## Felépítés
@@ -36,6 +38,8 @@ src/
     graph.ts       visszafelé mutató indexek (ki kinek a szülője, párja)
     operations.ts  hozzáadás, összekapcsolás, törlés, ellenőrzésekkel (pl. körkörös leszármazás)
     storage.ts     TreeRepository interfész + localStorage megvalósítás
+    gedcom.ts      GEDCOM 5.5.1 import/export
+    subtree.ts     személy köré szűkített részfa
     sample.ts      mintaadatok és nagy fa generátor
   layout/     elrendezés
     layout.ts      rétegzett (Sugiyama-jellegű) elrendezés
@@ -62,7 +66,5 @@ változtatás nélkül átvihető szerveroldalra is.
 ### Következő lépések (ötletek)
 
 - Szerveroldali tárolás, felhasználók és megosztás
-- GEDCOM import/export
-- Nézet egy kiválasztott személy köré (csak felmenők / leszármazottak)
 - Canvas/WebGL megjelenítés nagyon kicsi nagyításnál, 10 000+ fős fákhoz
 - Fényképek, események, helyszínek

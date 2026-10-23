@@ -9,6 +9,10 @@ import { fullName, type FamilyTree, type Id, type Person } from '../model/types'
 interface Props {
   tree: FamilyTree;
   layout: Layout;
+  /** Persons with relatives hidden by the focus view. */
+  truncated: Set<Id>;
+  focusRoot: Id | null;
+  onFocusOn: (id: Id) => void;
   selectedId: Id | null;
   focus: Focus | null;
   fitNonce: number;
@@ -21,7 +25,8 @@ const DETAIL_ZOOM = 0.4;
 const CULL_MARGIN = 200;
 const MIN_FIT_ZOOM = 0.03;
 
-export function TreeCanvas({ tree, layout, selectedId, focus, fitNonce, onSelect, onAddFirst }: Props) {
+export function TreeCanvas(props: Props) {
+  const { tree, layout, truncated, focusRoot, onFocusOn, selectedId, focus, fitNonce, onSelect, onAddFirst } = props;
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
@@ -148,7 +153,10 @@ export function TreeCanvas({ tree, layout, selectedId, focus, fitNonce, onSelect
                 person={tree.persons[box.id]}
                 selected={box.id === selectedId}
                 detailed={detailed}
+                truncated={truncated.has(box.id)}
+                isFocusRoot={box.id === focusRoot}
                 onSelect={onSelect}
+                onFocusOn={onFocusOn}
               />
             ))}
           </g>
@@ -163,7 +171,7 @@ export function TreeCanvas({ tree, layout, selectedId, focus, fitNonce, onSelect
         </div>
       )}
       <div className="status">
-        {count} személy · {visiblePersons.length} látható · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
+        {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
       </div>
     </div>
   );
@@ -202,18 +210,24 @@ const PersonNode = memo(function PersonNode({
   person,
   selected,
   detailed,
+  truncated,
+  isFocusRoot,
   onSelect,
+  onFocusOn,
 }: {
   box: PersonBox;
   person: Person;
   selected: boolean;
   detailed: boolean;
+  truncated: boolean;
+  isFocusRoot: boolean;
   onSelect: (id: Id) => void;
+  onFocusOn: (id: Id) => void;
 }) {
   const name = fullName(person);
   return (
     <g
-      className={`person gender-${person.gender}${selected ? ' selected' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}`}
+      className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}`}
       transform={`translate(${box.x - NODE_W / 2},${box.y})`}
       onClick={(e) => {
         e.stopPropagation();
@@ -231,6 +245,20 @@ const PersonNode = memo(function PersonNode({
             {years(person)}
           </text>
         </>
+      )}
+      {detailed && truncated && (
+        <g
+          className="more"
+          transform={`translate(${NODE_W - 14},14)`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFocusOn(box.id);
+          }}
+        >
+          <title>További rokonok – nézet áthelyezése ide</title>
+          <circle r={9} />
+          <path d="M-4,0H4M0,-4V4" />
+        </g>
       )}
       <title>{name}</title>
     </g>

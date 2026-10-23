@@ -37,10 +37,11 @@ interface Props {
   personId: Id;
   edit: EditFn;
   onSelect: (id: Id) => void;
+  onFocusOn: (id: Id) => void;
   onClose: () => void;
 }
 
-export function PersonPanel({ tree, index, personId, edit, onSelect, onClose }: Props) {
+export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, onClose }: Props) {
   const person = tree.persons[personId];
   const [draft, setDraft] = useState(() => ({
     firstName: person.firstName,
@@ -185,6 +186,8 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onClose }: 
           />
         )}
       </section>
+
+      <button onClick={() => onFocusOn(personId)}>Nézet erre a személyre szűkítve</button>
 
       <button className="danger" onClick={remove}>
         Személy törlése

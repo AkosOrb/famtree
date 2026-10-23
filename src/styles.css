@@ -235,6 +235,24 @@ label > textarea {
   fill-opacity: 1;
 }
 
+.person.focus-root .card {
+  fill: var(--accent-soft);
+}
+
+.person .more circle {
+  fill: var(--surface);
+  stroke: var(--accent);
+}
+
+.person .more path {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.person .more:hover circle {
+  fill: var(--accent-soft);
+}
+
 .person .stripe {
   fill: var(--g);
 }

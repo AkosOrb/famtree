@@ -6,6 +6,7 @@ import { computeLayout } from './layout/layout';
 import { buildIndex } from './model/graph';
 import { addPerson, TreeError } from './model/operations';
 import { sampleTree } from './model/sample';
+import { focusSubtree } from './model/subtree';
 import { localRepository } from './model/storage';
 import type { FamilyTree, Id } from './model/types';
 import { historyReducer } from './state';
@@ -14,6 +15,9 @@ export interface Focus {
   id: Id;
   nonce: number;
 }
+
+/** 0 = whole tree; otherwise generations shown above and below the focus person. */
+export type ViewDepth = 0 | 2 | 3 | 5;
 
 export function App() {
   const [history, dispatch] = useReducer(historyReducer, undefined, () => ({
@@ -27,8 +31,16 @@ export function App() {
   const [fitNonce, setFitNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const [viewDepth, setViewDepth] = useState<ViewDepth>(0);
+  const [viewRoot, setViewRoot] = useState<Id | null>(null);
+
   const index = useMemo(() => buildIndex(tree), [tree]);
-  const layout = useMemo(() => computeLayout(tree, index), [tree, index]);
+  const focusRoot = viewDepth && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
+  const view = useMemo(
+    () => (focusRoot ? focusSubtree(tree, index, focusRoot, viewDepth, viewDepth) : { tree, truncated: new Set<Id>() }),
+    [tree, index, focusRoot, viewDepth],
+  );
+  const layout = useMemo(() => computeLayout(view.tree), [view.tree]);
 
   useEffect(() => {
     const handle = setTimeout(() => localRepository.save(tree), 400);
@@ -74,10 +86,31 @@ export function App() {
     [tree],
   );
 
-  const select = useCallback((id: Id | null, center = false) => {
-    setSelectedId(id);
-    if (id && center) setFocus({ id, nonce: Date.now() });
-  }, []);
+  const select = useCallback(
+    (id: Id | null, center = false) => {
+      setSelectedId(id);
+      // In focus view, jumping to someone outside the visible part re-centres the view on them.
+      if (id && focusRoot && !view.tree.persons[id]) setViewRoot(id);
+      if (id && center) setFocus({ id, nonce: Date.now() });
+    },
+    [focusRoot, view.tree],
+  );
+
+  const focusOn = useCallback(
+    (id: Id) => {
+      setViewRoot(id);
+      if (!viewDepth) setViewDepth(3);
+      setSelectedId(id);
+      setFitNonce((n) => n + 1);
+    },
+    [viewDepth],
+  );
+
+  const changeDepth = (depth: ViewDepth) => {
+    setViewDepth(depth);
+    if (depth && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
+    setFitNonce((n) => n + 1);
+  };
 
   const replaceTree = (t: FamilyTree) => {
     dispatch({ type: 'replace', tree: t });
@@ -106,11 +139,16 @@ export function App() {
         onReplace={replaceTree}
         onFit={() => setFitNonce((n) => n + 1)}
         onError={setError}
+        viewDepth={focusRoot ? viewDepth : 0}
+        onViewDepth={changeDepth}
       />
       <main className="main">
         <TreeCanvas
           tree={tree}
           layout={layout}
+          truncated={view.truncated}
+          focusRoot={focusRoot}
+          onFocusOn={focusOn}
           selectedId={selectedId}
           focus={focus}
           fitNonce={fitNonce}
@@ -130,6 +168,7 @@ export function App() {
             personId={selectedId}
             edit={edit}
             onSelect={(id) => select(id, true)}
+            onFocusOn={focusOn}
             onClose={() => select(null)}
           />
         )}
