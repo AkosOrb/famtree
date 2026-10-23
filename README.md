@@ -25,6 +25,13 @@ npm run build && npm start   # http://localhost:3001; PORT és DB_FILE környeze
 
 Szerver nélkül is működik: ilyenkor a fa csak a böngészőben tárolódik.
 
+### Online változat (GitHub Pages)
+
+A `main` ágra kerülő minden módosítás után a `.github/workflows/pages.yml` automatikusan közzéteszi a
+felületet a https://akosorb.github.io/famtree/ címen. Ez a szerver nélküli, böngészőben tároló változat
+(megosztás és fiókok nélkül). Egyszeri beállítás: Settings → Pages → Source: „GitHub Actions”.
+Privát repóhoz a GitHub Pages fizetős csomagot (GitHub Pro) igényel; nyilvános repóval ingyenes.
+
 ## Funkciók (prototípus)
 
 - **Interaktív nézet:** egérgörgővel nagyítás, húzással mozgatás, érintőképernyőn is.
