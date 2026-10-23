@@ -75,8 +75,20 @@ describe('layout with families that married in', () => {
     [t] = addChild(t, find('Fekete Béla'), person('Fekete', 'Zoltán', 'male'), find('Fehér Erika'));
     const layout = computeLayout(t);
     expect(countIntrusions(t, layout)).toBe(0);
-    // Three families married into one sibling group: one crossing cannot be avoided.
+    // Three families married into one sibling group: one crossing cannot be avoided,
+    // but the two families' sibling lines must not merge into one.
     expect(countCrossings(t, layout)).toBeLessThanOrEqual(1);
     assertNoOverlap(layout);
+    const bars = layout.unions
+      .filter((u) => u.children.length)
+      .map((u) => {
+        const xs = [u.x, ...u.children.map((c) => layout.persons.get(c)!.x)];
+        return { y: u.barY, from: Math.min(...xs), to: Math.max(...xs) };
+      });
+    for (const a of bars) {
+      for (const b of bars) {
+        if (a !== b && a.y === b.y) expect(a.to < b.from || b.to < a.from).toBe(true);
+      }
+    }
   });
 });
