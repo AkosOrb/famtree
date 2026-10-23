@@ -1,7 +1,13 @@
-import { addChild, addPartner, addPerson } from './operations';
+import { addChild, addParent, addPartner, addPerson } from './operations';
 import { emptyTree, type FamilyTree, type Gender, type Id, type PersonInput } from './types';
 
-const p = (lastName: string, firstName: string, gender: Gender, birthYear?: number, deathYear?: number): PersonInput => ({
+const p = (
+  lastName: string,
+  firstName: string,
+  gender: Gender,
+  birthYear?: number,
+  deathYear?: number,
+): PersonInput => ({
   lastName,
   firstName,
   gender,
@@ -32,22 +38,82 @@ export function sampleTree(): FamilyTree {
   return t;
 }
 
-const FIRST_M = ['János', 'István', 'László', 'Péter', 'Gábor', 'Zoltán', 'Attila', 'Tamás', 'Balázs', 'Máté', 'Bence', 'Dávid'];
-const FIRST_F = ['Mária', 'Erzsébet', 'Katalin', 'Éva', 'Anna', 'Zsófia', 'Judit', 'Ágnes', 'Eszter', 'Réka', 'Lilla', 'Luca'];
-const LAST = ['Kovács', 'Nagy', 'Tóth', 'Szabó', 'Horváth', 'Varga', 'Kiss', 'Molnár', 'Németh', 'Farkas', 'Balogh', 'Papp'];
+/**
+ * The sample family plus the parents of three people who married in, so the
+ * tree has several ancestral lines meeting in one generation.
+ */
+export function inLawTree(): FamilyTree {
+  let t = sampleTree();
+  const find = (name: string) => Object.values(t.persons).find((x) => `${x.lastName} ${x.firstName}` === name)!.id;
+  const parents: [string, PersonInput, PersonInput][] = [
+    ['Tóth Éva', p('Tóth', 'Sándor', 'male', 1931, 2001), p('Farkas', 'Ilona', 'female', 1934, 2019)],
+    ['Nagy Péter', p('Nagy', 'Lajos', 'male', 1928, 1999), p('Kiss', 'Rozália', 'female', 1930, 2010)],
+    ['Horváth Lilla', p('Horváth', 'Tibor', 'male', 1960), p('Balogh', 'Judit', 'female', 1962)],
+  ];
+  for (const [child, father, mother] of parents) {
+    const id = find(child);
+    [t] = addParent(t, id, father);
+    [t] = addParent(t, id, mother);
+  }
+  return t;
+}
+
+const FIRST_M = [
+  'János',
+  'István',
+  'László',
+  'Péter',
+  'Gábor',
+  'Zoltán',
+  'Attila',
+  'Tamás',
+  'Balázs',
+  'Máté',
+  'Bence',
+  'Dávid',
+];
+const FIRST_F = [
+  'Mária',
+  'Erzsébet',
+  'Katalin',
+  'Éva',
+  'Anna',
+  'Zsófia',
+  'Judit',
+  'Ágnes',
+  'Eszter',
+  'Réka',
+  'Lilla',
+  'Luca',
+];
+const LAST = [
+  'Kovács',
+  'Nagy',
+  'Tóth',
+  'Szabó',
+  'Horváth',
+  'Varga',
+  'Kiss',
+  'Molnár',
+  'Németh',
+  'Farkas',
+  'Balogh',
+  'Papp',
+];
 
 /**
  * Deterministic pseudo-random tree with roughly `target` people, for performance
- * testing. Builds records directly (not via the immutable operations) so that
+ * testing. `inLawRate` is the share of married-in partners whose own parents and
+ * siblings are included too. Builds records directly (not via the immutable operations) so that
  * generating thousands of people stays linear.
  */
-export function generateTree(target: number, seed = 1): FamilyTree {
+export function generateTree(target: number, seed = 1, inLawRate = 0): FamilyTree {
   let s = seed;
   const rand = () => {
     s = (s * 1664525 + 1013904223) % 4294967296;
     return s / 4294967296;
   };
-  const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
+  const pick = <T>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
   const t = emptyTree();
   let next = 0;
   const add = (gender: Gender, lastName: string, birthYear: number): Id => {
@@ -64,6 +130,17 @@ export function generateTree(target: number, seed = 1): FamilyTree {
     if (rand() < 0.15 && queue.length > 0) continue;
     const partnerGender: Gender = cur.gender === 'male' ? 'female' : 'male';
     const partner = add(partnerGender, pick(LAST), cur.year + Math.floor(rand() * 6) - 3);
+    // Some people who marry in bring their own parents and siblings along.
+    if (rand() < inLawRate && next < target - 3) {
+      const py = t.persons[partner].birthYear! - 25 - Math.floor(rand() * 8);
+      const pf = add('male', t.persons[partner].lastName, py);
+      const pm = add('female', pick(LAST), py + 2);
+      const fam = { id: `gu${next.toString(36)}`, partners: [pf, pm], children: [partner] };
+      for (let k = Math.floor(rand() * 3); k > 0; k--) {
+        fam.children.push(add(rand() < 0.5 ? 'male' : 'female', t.persons[partner].lastName, py + 25 + k));
+      }
+      t.unions[fam.id] = fam;
+    }
     const father = cur.gender === 'male' ? cur.id : partner;
     const union = { id: `gu${next.toString(36)}`, partners: [cur.id, partner], children: [] as Id[] };
     t.unions[union.id] = union;

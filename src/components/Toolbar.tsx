@@ -3,7 +3,7 @@ import type { ViewDepth } from '../App';
 import { exportGedcom, importGedcom } from '../model/gedcom';
 import type { User } from '../sync/api';
 import type { SyncStatus } from '../sync/useServerSync';
-import { generateTree, sampleTree } from '../model/sample';
+import { generateTree, inLawTree } from '../model/sample';
 import { parseTree } from '../model/storage';
 import { isValidTree, sanitizeTree } from '../sync/changes';
 import { emptyTree, type FamilyTree, type Id } from '../model/types';
@@ -82,9 +82,9 @@ export function Toolbar(props: Props) {
       !(await askConfirm('A jelenlegi családfa lecserélődik. Folytatod?', 'Csere'))
     )
       return;
-    if (value === 'sample') onReplace(sampleTree());
+    if (value === 'sample') onReplace(inLawTree());
     else if (value === 'empty') onReplace(emptyTree());
-    else onReplace(generateTree(Number(value)));
+    else onReplace(generateTree(Number(value), 1, 0.3));
   };
 
   return (
