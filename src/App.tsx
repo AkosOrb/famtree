@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { PersonPanel } from './components/PersonPanel';
 import { AccountDialog } from './components/AccountDialog';
 import { ConfirmHost } from './components/ConfirmDialog';
+import { PathCard } from './components/PathCard';
 import { ShareDialog } from './components/ShareDialog';
 import { Toolbar } from './components/Toolbar';
 import { TreeCanvas } from './components/TreeCanvas';
@@ -9,6 +10,7 @@ import { computeLayout } from './layout/layout';
 import { buildIndex } from './model/graph';
 import { addPerson, TreeError } from './model/operations';
 import { sampleTree } from './model/sample';
+import { findPath } from './model/relationship';
 import { focusSubtree } from './model/subtree';
 import { localRepository } from './model/storage';
 import { emptyTree, type FamilyTree, type Id } from './model/types';
@@ -62,6 +64,7 @@ export function App() {
   const [fitNonce, setFitNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const [pathEnds, setPathEnds] = useState<{ from: Id; to: Id } | null>(null);
   const [viewDepth, setViewDepth] = useState<ViewDepth>(0);
   const [viewRoot, setViewRoot] = useState<Id | null>(null);
 
@@ -72,6 +75,19 @@ export function App() {
     [tree, index, focusRoot, viewDepth],
   );
   const layout = useMemo(() => computeLayout(view.tree), [view.tree]);
+
+  const activePath = pathEnds && tree.persons[pathEnds.from] && tree.persons[pathEnds.to] ? pathEnds : null;
+  const path = useMemo(
+    () => (activePath ? findPath(tree, index, activePath.from, activePath.to) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, index, activePath?.from, activePath?.to],
+  );
+
+  const showPath = (from: Id, to: Id) => {
+    setPathEnds({ from, to });
+    // The path may leave a focus view, so show the whole tree.
+    setViewDepth(0);
+  };
 
   // Local mode persists to this browser; server mode syncs with the backend.
   useEffect(() => {
@@ -234,6 +250,7 @@ export function App() {
           truncated={view.truncated}
           focusRoot={focusRoot}
           onFocusOn={focusOn}
+          path={path}
           selectedId={selectedId}
           focus={focus}
           fitNonce={fitNonce}
@@ -245,6 +262,16 @@ export function App() {
             {error}
           </div>
         )}
+        {activePath && (
+          <PathCard
+            tree={tree}
+            from={activePath.from}
+            to={activePath.to}
+            path={path}
+            onSelect={(id) => select(id, true)}
+            onClose={() => setPathEnds(null)}
+          />
+        )}
         {selectedId && tree.persons[selectedId] && (
           <PersonPanel
             key={selectedId}
@@ -254,6 +281,7 @@ export function App() {
             edit={edit}
             onSelect={(id) => select(id, true)}
             onFocusOn={focusOn}
+            onFindPath={(other) => showPath(selectedId, other)}
             onClose={() => select(null)}
             readOnly={readOnly}
           />

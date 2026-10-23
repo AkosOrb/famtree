@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Focus } from '../App';
 import { NODE_H, NODE_W, type Layout, type PersonBox, type UnionGeometry } from '../layout/layout';
 import { SpatialGrid } from '../layout/spatialGrid';
+import type { PathStep } from '../model/relationship';
 import { fullName, type FamilyTree, type Id, type Person } from '../model/types';
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   truncated: Set<Id>;
   focusRoot: Id | null;
   onFocusOn: (id: Id) => void;
+  /** Relationship path to highlight (see model/relationship.ts). */
+  path: PathStep[] | null;
   selectedId: Id | null;
   focus: Focus | null;
   fitNonce: number;
@@ -27,7 +30,8 @@ const MIN_FIT_ZOOM = 0.03;
 const AVATAR = 40;
 
 export function TreeCanvas(props: Props) {
-  const { tree, layout, truncated, focusRoot, onFocusOn, selectedId, focus, fitNonce, onSelect, onAddFirst } = props;
+  const { tree, layout, truncated, focusRoot, onFocusOn, path, selectedId, focus, fitNonce, onSelect, onAddFirst } =
+    props;
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
@@ -119,6 +123,29 @@ export function TreeCanvas(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, size.width > 0]);
 
+  // Zoom to a newly shown path so both ends are visible.
+  const fittedPath = useRef<PathStep[] | null>(null);
+  useEffect(() => {
+    if (!path || !size.width || fittedPath.current === path) return;
+    const boxes = path.map((s) => layout.persons.get(s.id)).filter((b): b is PersonBox => !!b);
+    if (boxes.length !== path.length) return;
+    fittedPath.current = path;
+    const minX = Math.min(...boxes.map((b) => b.x)) - NODE_W / 2;
+    const maxX = Math.max(...boxes.map((b) => b.x)) + NODE_W / 2;
+    const minY = Math.min(...boxes.map((b) => b.y));
+    const maxY = Math.max(...boxes.map((b) => b.y)) + NODE_H;
+    const k = Math.max(0.05, Math.min(1, (0.8 * size.width) / (maxX - minX), (0.75 * size.height) / (maxY - minY)));
+    animateTo(
+      zoomIdentity
+        .translate(size.width / 2 - (k * (minX + maxX)) / 2, size.height / 2 + 40 - (k * (minY + maxY)) / 2)
+        .scale(k),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, layout, size.width > 0]);
+
+  const pathIds = useMemo(() => new Set(path?.map((s) => s.id)), [path]);
+  const pathD = useMemo(() => (path ? pathGeometry(path, layout) : ''), [path, layout]);
+
   const grids = useMemo(() => {
     const persons = new SpatialGrid<PersonBox>();
     for (const p of layout.persons.values()) {
@@ -149,11 +176,12 @@ export function TreeCanvas(props: Props) {
           </clipPath>
         </defs>
         <g transform={transform.toString()}>
-          <g className="edges">
+          <g className={`edges${path ? ' dimmed' : ''}`}>
             {visibleUnions.map((u) => (
               <UnionEdges key={u.id} union={u} layout={layout} />
             ))}
           </g>
+          {pathD && <path d={pathD} className="path-edge" />}
           <g className="nodes">
             {visiblePersons.map((box) => (
               <PersonNode
@@ -164,6 +192,7 @@ export function TreeCanvas(props: Props) {
                 detailed={detailed}
                 truncated={truncated.has(box.id)}
                 isFocusRoot={box.id === focusRoot}
+                pathState={path ? (pathIds.has(box.id) ? 'on' : 'off') : undefined}
                 onSelect={onSelect}
                 onFocusOn={onFocusOn}
               />
@@ -224,6 +253,7 @@ const PersonNode = memo(function PersonNode({
   detailed,
   truncated,
   isFocusRoot,
+  pathState,
   onSelect,
   onFocusOn,
 }: {
@@ -233,6 +263,7 @@ const PersonNode = memo(function PersonNode({
   detailed: boolean;
   truncated: boolean;
   isFocusRoot: boolean;
+  pathState?: 'on' | 'off';
   onSelect: (id: Id) => void;
   onFocusOn: (id: Id) => void;
 }) {
@@ -241,7 +272,7 @@ const PersonNode = memo(function PersonNode({
   const maxChars = person.photo ? 15 : 20;
   return (
     <g
-      className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}`}
+      className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}${pathState ? ` path-${pathState}` : ''}`}
       transform={`translate(${box.x - NODE_W / 2},${box.y})`}
       onClick={(e) => {
         e.stopPropagation();
@@ -292,3 +323,27 @@ const PersonNode = memo(function PersonNode({
     </g>
   );
 });
+
+/** SVG path tracing the actual tree lines between consecutive people of a relationship path. */
+function pathGeometry(path: PathStep[], layout: Layout): string {
+  const parts: string[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const a = layout.persons.get(path[i - 1].id);
+    const b = layout.persons.get(path[i].id);
+    if (!a || !b) continue;
+    if (path[i].relation === 'partner') {
+      const [l, r] = a.x < b.x ? [a, b] : [b, a];
+      parts.push(`M${l.x + NODE_W / 2},${l.y + NODE_H / 2}H${r.x - NODE_W / 2}`);
+      continue;
+    }
+    const [parent, child] = path[i].relation === 'parent' ? [b, a] : [a, b];
+    const union = layout.unions.find((u) => u.children.includes(child.id) && u.partners.includes(parent.id));
+    if (!union) continue;
+    if (union.partners.length === 2) {
+      const side = union.x > parent.x ? NODE_W / 2 : -NODE_W / 2;
+      parts.push(`M${parent.x + side},${parent.y + NODE_H / 2}H${union.x}`);
+    }
+    parts.push(`M${union.x},${union.y}V${union.barY}H${child.x}V${child.y}`);
+  }
+  return parts.join('');
+}

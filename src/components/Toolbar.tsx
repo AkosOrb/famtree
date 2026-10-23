@@ -71,7 +71,11 @@ export function Toolbar(props: Props) {
 
   const loadDemo = async (value: string) => {
     if (!value) return;
-    if (Object.keys(tree.persons).length && !(await askConfirm('A jelenlegi családfa lecserélődik. Folytatod?', 'Csere'))) return;
+    if (
+      Object.keys(tree.persons).length &&
+      !(await askConfirm('A jelenlegi családfa lecserélődik. Folytatod?', 'Csere'))
+    )
+      return;
     if (value === 'sample') onReplace(sampleTree());
     else if (value === 'empty') onReplace(emptyTree());
     else onReplace(generateTree(Number(value)));

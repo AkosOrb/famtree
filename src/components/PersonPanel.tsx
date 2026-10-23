@@ -40,11 +40,23 @@ interface Props {
   edit: EditFn;
   onSelect: (id: Id) => void;
   onFocusOn: (id: Id) => void;
+  onFindPath: (other: Id) => void;
   onClose: () => void;
   readOnly?: boolean;
 }
 
-export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, onClose, readOnly }: Props) {
+export function PersonPanel({
+  tree,
+  index,
+  personId,
+  edit,
+  onSelect,
+  onFocusOn,
+  onFindPath,
+  onClose,
+  readOnly,
+}: Props) {
+  const [findingPath, setFindingPath] = useState(false);
   const person = tree.persons[personId];
   const [draft, setDraft] = useState(() => ({
     firstName: person.firstName,
@@ -213,6 +225,24 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
       )}
 
       <button onClick={() => onFocusOn(personId)}>Nézet erre a személyre szűkítve</button>
+
+      {findingPath ? (
+        <div className="add-form">
+          <p className="muted">Kivel való rokoni kapcsolatát mutassam?</p>
+          <PersonPicker
+            tree={tree}
+            exclude={new Set([personId])}
+            onPick={(id) => {
+              setFindingPath(false);
+              onFindPath(id);
+            }}
+            autoFocus
+          />
+          <button onClick={() => setFindingPath(false)}>Mégse</button>
+        </div>
+      ) : (
+        <button onClick={() => setFindingPath(true)}>Kapcsolat keresése másik személlyel</button>
+      )}
 
       {!readOnly && (
         <button className="danger" onClick={remove}>

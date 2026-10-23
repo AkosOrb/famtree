@@ -114,7 +114,10 @@ function MyTrees({ user, currentTreeId, onLogout }: { user: User; currentTreeId?
   }, []);
 
   const remove = async (t: TreeSummary) => {
-    if (!(await askConfirm(`Biztosan törlöd a(z) „${t.name}” családfát a szerverről? Ez nem vonható vissza.`, 'Törlés'))) return;
+    if (
+      !(await askConfirm(`Biztosan törlöd a(z) „${t.name}” családfát a szerverről? Ez nem vonható vissza.`, 'Törlés'))
+    )
+      return;
     try {
       await api.deleteTree(t.id);
       setTrees((list) => list?.filter((x) => x.id !== t.id) ?? null);

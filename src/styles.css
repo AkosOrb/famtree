@@ -633,3 +633,97 @@ fieldset {
   color: var(--muted);
   font-size: 12px;
 }
+
+.edges.dimmed {
+  opacity: 0.3;
+}
+
+.path-edge {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.person.overview.path-on .card {
+  fill: var(--accent);
+  fill-opacity: 1;
+}
+
+.person.path-off {
+  opacity: 0.35;
+}
+
+.person.path-on .card {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.path-card {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 3;
+}
+
+.path-card h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.path-card .term {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.path-card .term strong {
+  color: var(--accent);
+}
+
+.path-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.path-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.path-steps .rel {
+  width: 78px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.path-steps button {
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.path-steps button:hover {
+  color: var(--accent);
+}

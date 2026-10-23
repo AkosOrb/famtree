@@ -33,6 +33,9 @@ Szerver nélkül is működik: ilyenkor a fa csak a böngészőben tárolódik.
 - **Fénykép:** személyenként feltölthető; négyzetesre vágva, 256 px-re kicsinyítve (kb. 5–20 KB) a személy
   adatai között tárolódik, és kis kerek képként megjelenik a kártyán is.
 - **Keresés:** a felső keresőmezőből bárkire rá lehet ugrani.
+- **Rokoni kapcsolat két személy között:** a panel „Kapcsolat keresése másik személlyel” gombjával. A fán
+  kiemelődik a legrövidebb összekötő út, mellette a lépések (apja, lánya, felesége…) és a rokonsági
+  megnevezés (pl. unokatestvére, nagynénje, sógornője, 5. fokú oldalági rokona).
 - **Visszavonás / újra:** Ctrl+Z, Ctrl+Y (vagy Ctrl+Shift+Z).
 - **Szűkített nézet:** „Kijelölt körül ±N generáció”: csak a kiválasztott személy felmenői, leszármazottai,
   párjai és testvérei látszanak. A ⊕ jelvény mutatja, kinek vannak rejtett rokonai; rákattintva oda ugrik a nézet.
@@ -56,6 +59,7 @@ src/
     storage.ts     TreeRepository interfész + localStorage megvalósítás
     gedcom.ts      GEDCOM 5.5.1 import/export
     subtree.ts     személy köré szűkített részfa
+    relationship.ts  útkeresés két személy között, rokonsági megnevezés
     sample.ts      mintaadatok és nagy fa generátor
     photo.ts       feltöltött kép vágása, kicsinyítése
   layout/     elrendezés
