@@ -528,3 +528,48 @@ fieldset {
 .error {
   color: var(--danger);
 }
+
+.muted {
+  color: var(--muted);
+}
+
+.section-title {
+  font-size: 13px;
+  margin: 0;
+}
+
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tree-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.tree-list li.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tree-list a {
+  flex: 1;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.tree-list small {
+  color: var(--muted);
+}

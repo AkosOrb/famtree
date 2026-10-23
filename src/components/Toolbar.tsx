@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { ViewDepth } from '../App';
 import { exportGedcom, importGedcom } from '../model/gedcom';
+import type { User } from '../sync/api';
 import type { SyncStatus } from '../sync/useServerSync';
 import { generateTree, sampleTree } from '../model/sample';
 import { parseTree } from '../model/storage';
@@ -23,7 +24,10 @@ interface Props {
   readOnly: boolean;
   treeName?: string;
   syncStatus: SyncStatus | 'local' | 'loading' | 'readonly';
-  onShare: () => void;
+  /** Undefined when no server is available. */
+  onShare?: () => void;
+  user?: User | null;
+  onAccount?: () => void;
 }
 
 const STATUS_LABEL: Record<Props['syncStatus'], string> = {
@@ -47,7 +51,7 @@ function download(content: string, type: string, filename: string) {
 
 export function Toolbar(props: Props) {
   const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
-  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare } = props;
+  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare, user, onAccount } = props;
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportAs = (format: string) => {
@@ -131,11 +135,12 @@ export function Toolbar(props: Props) {
             </select>
           </>
         )}
-        {syncStatus !== 'readonly' && syncStatus !== 'loading' && (
+        {onShare && syncStatus !== 'readonly' && syncStatus !== 'loading' && (
           <button className="primary" onClick={onShare}>
             Megosztás
           </button>
         )}
+        {onAccount && <button onClick={onAccount}>{user ? user.name : 'Bejelentkezés'}</button>}
       </div>
     </header>
   );

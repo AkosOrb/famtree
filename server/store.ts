@@ -9,7 +9,7 @@ import type { FamilyTree } from '../src/model/types';
  * a change log, letting clients fetch just what happened since their version.
  */
 
-export type Role = 'editor' | 'viewer';
+export type Role = 'owner' | 'editor' | 'viewer';
 
 export interface TreeMeta {
   id: string;
@@ -21,13 +21,15 @@ export interface TreeMeta {
 const newKey = () => randomBytes(18).toString('base64url');
 const hash = (key: string) => createHash('sha256').update(key).digest();
 
-export class TreeStore {
-  private db: Database.Database;
+export function openDatabase(filename = ':memory:'): Database.Database {
+  const db = new Database(filename);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  return db;
+}
 
-  constructor(filename = ':memory:') {
-    this.db = new Database(filename);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+export class TreeStore {
+  constructor(private db: Database.Database) {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS trees (
         id TEXT PRIMARY KEY,
@@ -57,19 +59,20 @@ export class TreeStore {
         PRIMARY KEY (tree_id, version)
       );
     `);
+    // Added with user accounts; older databases get the column on start-up.
+    const columns = this.db.prepare('PRAGMA table_info(trees)').all() as { name: string }[];
+    if (!columns.some((c) => c.name === 'owner_id')) this.db.exec('ALTER TABLE trees ADD COLUMN owner_id TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS trees_owner ON trees(owner_id)');
   }
 
-  close() {
-    this.db.close();
-  }
-
-  /** Returns the caller's role for a tree, or null if the key grants nothing. */
-  authorize(treeId: string, key: string | undefined): Role | null {
-    if (!key) return null;
-    const row = this.db.prepare('SELECT edit_key_hash, view_key FROM trees WHERE id = ?').get(treeId) as
-      | { edit_key_hash: Buffer; view_key: string }
+  /** Returns the caller's role for a tree, or null if neither the user nor the key grants anything. */
+  authorize(treeId: string, key: string | undefined, userId?: string): Role | null {
+    const row = this.db.prepare('SELECT edit_key_hash, view_key, owner_id FROM trees WHERE id = ?').get(treeId) as
+      | { edit_key_hash: Buffer; view_key: string; owner_id: string | null }
       | undefined;
     if (!row) return null;
+    if (userId && row.owner_id === userId) return 'owner';
+    if (!key) return null;
     if (timingSafeEqual(hash(key), row.edit_key_hash)) return 'editor';
     if (timingSafeEqual(hash(key), hash(row.view_key))) return 'viewer';
     return null;
@@ -79,15 +82,22 @@ export class TreeStore {
     return !!this.db.prepare('SELECT 1 FROM trees WHERE id = ?').get(treeId);
   }
 
-  create(name: string, tree: FamilyTree): { id: string; editKey: string; viewKey: string; version: number } {
+  create(
+    name: string,
+    tree: FamilyTree,
+    ownerId: string | null = null,
+  ): { id: string; editKey: string; viewKey: string; version: number } {
     const id = randomBytes(9).toString('base64url');
     const editKey = newKey();
     const viewKey = newKey();
     const now = new Date().toISOString();
     this.db.transaction(() => {
       this.db
-        .prepare('INSERT INTO trees VALUES (?, ?, ?, ?, 1, ?, ?)')
-        .run(id, name, hash(editKey), viewKey, now, now);
+        .prepare(
+          `INSERT INTO trees (id, name, edit_key_hash, view_key, version, created_at, updated_at, owner_id)
+           VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+        )
+        .run(id, name, hash(editKey), viewKey, now, now, ownerId);
       const p = this.db.prepare('INSERT INTO persons VALUES (?, ?, ?)');
       for (const person of Object.values(tree.persons)) p.run(id, person.id, JSON.stringify(person));
       const u = this.db.prepare('INSERT INTO unions VALUES (?, ?, ?)');
@@ -104,6 +114,25 @@ export class TreeStore {
       updated_at: string;
     };
     return { id: row.id, name: row.name, version: row.version, updatedAt: row.updated_at };
+  }
+
+  listByOwner(ownerId: string): TreeMeta[] {
+    const rows = this.db
+      .prepare('SELECT id, name, version, updated_at FROM trees WHERE owner_id = ? ORDER BY updated_at DESC')
+      .all(ownerId) as { id: string; name: string; version: number; updated_at: string }[];
+    return rows.map((r) => ({ id: r.id, name: r.name, version: r.version, updatedAt: r.updated_at }));
+  }
+
+  /** Replaces a key, so links carrying the old one stop working. */
+  rotateKey(treeId: string, which: 'edit' | 'view'): string {
+    const key = newKey();
+    if (which === 'edit') this.db.prepare('UPDATE trees SET edit_key_hash = ? WHERE id = ?').run(hash(key), treeId);
+    else this.db.prepare('UPDATE trees SET view_key = ? WHERE id = ?').run(key, treeId);
+    return key;
+  }
+
+  rename(treeId: string, name: string) {
+    this.db.prepare('UPDATE trees SET name = ? WHERE id = ?').run(name, treeId);
   }
 
   viewKey(treeId: string): string {
@@ -147,7 +176,9 @@ export class TreeStore {
         const table = tables[c.kind];
         if (c.value) {
           this.db
-            .prepare(`INSERT INTO ${table} VALUES (?, ?, ?) ON CONFLICT(tree_id, id) DO UPDATE SET data = excluded.data`)
+            .prepare(
+              `INSERT INTO ${table} VALUES (?, ?, ?) ON CONFLICT(tree_id, id) DO UPDATE SET data = excluded.data`,
+            )
             .run(treeId, c.id, JSON.stringify(c.value));
         } else {
           this.db.prepare(`DELETE FROM ${table} WHERE tree_id = ? AND id = ?`).run(treeId, c.id);

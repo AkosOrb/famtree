@@ -4,14 +4,16 @@ import { updatePerson } from '../src/model/operations';
 import { sampleTree } from '../src/model/sample';
 import { applyChanges, diffTrees } from '../src/sync/changes';
 import { createApp } from './app';
-import { TreeStore } from './store';
+import type Database from 'better-sqlite3';
+import { openDatabase, TreeStore } from './store';
+import { UserStore } from './users';
 
-let store: TreeStore;
-afterEach(() => store?.close());
+let db: Database.Database;
+afterEach(() => db?.close());
 
 function setup() {
-  store = new TreeStore(':memory:');
-  return createApp(store);
+  db = openDatabase(':memory:');
+  return createApp(new TreeStore(db), new UserStore(db));
 }
 
 describe('API', () => {
@@ -36,8 +38,15 @@ describe('API', () => {
     expect(pushed.body.version).toBe(2);
 
     // A stale client gets a conflict and can catch up incrementally.
-    await request(app).post(`/api/trees/${id}/changes`).set('Authorization', edit).send({ baseVersion: 1, changes }).expect(409);
-    const since = await request(app).get(`/api/trees/${id}/changes?since=1`).set('Authorization', `Bearer ${viewKey}`).expect(200);
+    await request(app)
+      .post(`/api/trees/${id}/changes`)
+      .set('Authorization', edit)
+      .send({ baseVersion: 1, changes })
+      .expect(409);
+    const since = await request(app)
+      .get(`/api/trees/${id}/changes?since=1`)
+      .set('Authorization', `Bearer ${viewKey}`)
+      .expect(200);
     expect(since.body.version).toBe(2);
     expect(applyChanges(tree, since.body.changes).persons[someone].notes).toBe('szerveren');
   });
@@ -66,5 +75,50 @@ describe('API', () => {
       .set('Authorization', `Bearer ${editKey}`)
       .send({ baseVersion: 1, changes: [{ kind: 'person', id: 'a', value: { id: 'a', gender: 'robot' } }] })
       .expect(400);
+  });
+
+  it('registers, logs in and lists owned trees', async () => {
+    const app = setup();
+    const agent = request.agent(app);
+    await agent.post('/api/auth/register').send({ email: 'a@b.hu', name: 'Ákos', password: 'rövid' }).expect(400);
+    const reg = await agent
+      .post('/api/auth/register')
+      .send({ email: 'A@b.hu', name: 'Ákos', password: 'titkosjelszo' })
+      .expect(200);
+    expect(reg.headers['set-cookie'][0]).toMatch(/HttpOnly/);
+    await agent.post('/api/auth/register').send({ email: 'a@b.hu', name: 'Más', password: 'titkosjelszo' }).expect(409);
+
+    const { id } = (await agent.post('/api/trees').send({ name: 'Saját', tree: sampleTree() }).expect(201)).body;
+    const list = await agent.get('/api/trees').expect(200);
+    expect(list.body.map((t: { id: string }) => t.id)).toEqual([id]);
+    // The owner needs no key.
+    expect((await agent.get(`/api/trees/${id}`).expect(200)).body.role).toBe('owner');
+
+    await agent.post('/api/auth/logout').expect(204);
+    expect((await agent.get('/api/auth/me').expect(200)).body).toBeNull();
+    await agent.get(`/api/trees/${id}`).expect(403);
+    await agent.post('/api/auth/login').send({ email: 'a@b.hu', password: 'rossz-jelszo' }).expect(401);
+    await agent.post('/api/auth/login').send({ email: 'a@b.hu', password: 'titkosjelszo' }).expect(200);
+    expect((await agent.get('/api/auth/me').expect(200)).body.name).toBe('Ákos');
+  });
+
+  it('lets the owner revoke links by rotating keys', async () => {
+    const app = setup();
+    const owner = request.agent(app);
+    await owner.post('/api/auth/register').send({ email: 'o@b.hu', name: 'O', password: 'titkosjelszo' });
+    const { id, editKey, viewKey } = (await owner.post('/api/trees').send({ name: 'X', tree: sampleTree() })).body;
+
+    // Key holders cannot rotate or delete.
+    await request(app)
+      .post(`/api/trees/${id}/keys`)
+      .set('Authorization', `Bearer ${editKey}`)
+      .send({ which: 'view' })
+      .expect(403);
+    await request(app).delete(`/api/trees/${id}`).set('Authorization', `Bearer ${editKey}`).expect(403);
+
+    const fresh = (await owner.post(`/api/trees/${id}/keys`).send({ which: 'view' }).expect(200)).body.key;
+    await request(app).get(`/api/trees/${id}`).set('Authorization', `Bearer ${viewKey}`).expect(403);
+    await request(app).get(`/api/trees/${id}`).set('Authorization', `Bearer ${fresh}`).expect(200);
+    await owner.delete(`/api/trees/${id}`).expect(204);
   });
 });

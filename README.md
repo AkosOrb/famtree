@@ -38,6 +38,9 @@ Szerver nélkül is működik: ilyenkor a fa csak a böngészőben tárolódik.
 - **Szerveres tárolás és megosztás:** a „Megosztás” gombbal a fa feltölthető a szerverre. Ezután egy
   szerkesztői és egy csak olvasható linket kapsz. Több szerkesztő egyszerre is dolgozhat: a módosítások
   pár másodpercen belül megjelennek a többieknél.
+- **Fiókok:** regisztráció és bejelentkezés e-mail címmel és jelszóval. Bejelentkezve a feltöltött fák a
+  fiókhoz kerülnek („Saját családfáim” lista), a tulajdonos link nélkül is eléri őket, és bármikor új
+  linket készíthet, amivel a régi szerkesztői vagy csak olvasható link megszűnik.
 - **Mintaadatok:** kis mintacsalád, illetve 500 / 2000 / 5000 fős generált fa a teljesítmény kipróbálásához.
 
 ## Felépítés
@@ -70,8 +73,12 @@ server/       Express + SQLite (better-sqlite3) API
 - Minden fának verziószáma van. A kliens a saját verziójára hivatkozva küldi a változásait; ha közben
   más is módosított (409), letölti az azóta történt változásokat, ráteszi a sajátjait, és újraküldi.
   Ugyanazon rekord egyidejű szerkesztésénél az utolsó mentés nyer.
-- Jogosultság fiókok helyett kulcsokkal: a szerkesztői kulcsot a szerver csak hash-ként tárolja, a kulcs
-  a link `#` utáni részében utazik, így nem kerül szervernaplóba.
+- Jogosultság két úton: a tulajdonos fiókjával (HttpOnly, SameSite munkamenet-süti), vagy kulccsal.
+  A szerkesztői kulcsot a szerver csak hash-ként tárolja, a kulcs a link `#` utáni részében utazik, így nem
+  kerül szervernaplóba.
+- A jelszavak scrypt-tel, egyedi sóval hash-elve tárolódnak; a munkamenet-tokenek is csak hash-ként.
+  A bejelentkezés IP-nként percenként 10 próbálkozásra korlátozott.
+- HTTPS-t végző fordított proxy mögött állítsd be a `TRUST_PROXY=1` változót, hogy a süti `Secure` legyen.
 
 ### Adatmodell
 
@@ -91,7 +98,7 @@ változtatás nélkül átvihető szerveroldalra is.
 
 ### Következő lépések (ötletek)
 
-- Felhasználói fiókok (bejelentkezés), kulcsok visszavonása
+- Elfelejtett jelszó (e-mail küldés), személyre szóló meghívás szerkesztőnek
 - Valós idejű frissítés (WebSocket) az 5 másodperces lekérdezés helyett
 - Canvas/WebGL megjelenítés nagyon kicsi nagyításnál, 10 000+ fős fákhoz
 - Fényképek, események, helyszínek

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { PersonPanel } from './components/PersonPanel';
+import { AccountDialog } from './components/AccountDialog';
 import { ShareDialog } from './components/ShareDialog';
 import { Toolbar } from './components/Toolbar';
 import { TreeCanvas } from './components/TreeCanvas';
@@ -10,7 +11,7 @@ import { sampleTree } from './model/sample';
 import { focusSubtree } from './model/subtree';
 import { localRepository } from './model/storage';
 import { emptyTree, type FamilyTree, type Id } from './model/types';
-import { api, sessionFromUrl, shareUrl, type Role, type ServerSession } from './sync/api';
+import { api, sessionFromUrl, shareUrl, type Role, type ServerSession, type User } from './sync/api';
 import type { Change } from './sync/changes';
 import { useServerSync } from './sync/useServerSync';
 import { historyReducer } from './state';
@@ -41,6 +42,20 @@ export function App() {
   const loading = !!session && !remote;
   const readOnly = loading || remote?.role === 'viewer';
   const [shareOpen, setShareOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  /** undefined while unknown; null when signed out or no server is running. */
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [serverAvailable, setServerAvailable] = useState(false);
+
+  useEffect(() => {
+    api
+      .me()
+      .then((u) => {
+        setUser(u);
+        setServerAvailable(true);
+      })
+      .catch(() => setUser(null)); // No API server: local mode only.
+  }, []);
   const [selectedId, setSelectedId] = useState<Id | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [fitNonce, setFitNonce] = useState(0);
@@ -73,25 +88,33 @@ export function App() {
         setRemote({ name: r.name, role: r.role, initial: { tree: r.tree, version: r.version } });
         setFitNonce((n) => n + 1);
       })
-      .catch((e: Error) => setError(`A családfa nem tölthető be: ${e.message}`));
+      .catch((e: Error) => {
+        setError(
+          `A családfa nem tölthető be: ${e.message}${session.key ? '' : ' Jelentkezz be a tulajdonos fiókjával.'}`,
+        );
+        if (!session.key) setAccountOpen(true);
+      });
     // Loads once for the session found in the URL; later sessions come from uploading.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onRemote = useCallback((t: FamilyTree, changes: Change[]) => dispatch({ type: 'remote', tree: t, changes }), []);
+  const onRemote = useCallback(
+    (t: FamilyTree, changes: Change[]) => dispatch({ type: 'remote', tree: t, changes }),
+    [],
+  );
   const syncStatus = useServerSync(
     remote ? session : null,
     remote?.initial ?? null,
     tree,
     onRemote,
-    remote?.role === 'editor',
+    remote?.role === 'owner' || remote?.role === 'editor',
   );
 
   const upload = async (name: string) => {
     const r = await api.create(name, tree);
     window.history.replaceState(null, '', shareUrl(r.id, r.editKey));
     setSession({ treeId: r.id, key: r.editKey });
-    setRemote({ name, role: 'editor', initial: { tree, version: r.version } });
+    setRemote({ name, role: user ? 'owner' : 'editor', initial: { tree, version: r.version } });
   };
 
   useEffect(() => {
@@ -193,7 +216,9 @@ export function App() {
         readOnly={readOnly}
         treeName={remote?.name}
         syncStatus={remote ? (remote.role === 'viewer' ? 'readonly' : syncStatus) : loading ? 'loading' : 'local'}
-        onShare={() => setShareOpen(true)}
+        onShare={serverAvailable ? () => setShareOpen(true) : undefined}
+        user={user}
+        onAccount={serverAvailable ? () => setAccountOpen(true) : undefined}
       />
       <main className="main">
         <TreeCanvas
@@ -233,6 +258,23 @@ export function App() {
           role={remote?.role ?? null}
           onUpload={upload}
           onClose={() => setShareOpen(false)}
+          signedIn={!!user}
+          onSessionKey={(key) => {
+            window.history.replaceState(null, '', shareUrl(session!.treeId, key));
+            setSession({ treeId: session!.treeId, key });
+          }}
+        />
+      )}
+      {accountOpen && (
+        <AccountDialog
+          user={user ?? null}
+          currentTreeId={remote ? session?.treeId : undefined}
+          onUser={(u) => {
+            setUser(u);
+            // A tree that failed to load for lack of access may open now.
+            if (u && session && !remote) window.location.reload();
+          }}
+          onClose={() => setAccountOpen(false)}
         />
       )}
     </div>

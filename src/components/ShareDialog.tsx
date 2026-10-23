@@ -4,18 +4,25 @@ import { api, shareUrl, type Role, type ServerSession } from '../sync/api';
 interface Props {
   session: ServerSession | null;
   role: Role | null;
+  signedIn: boolean;
   onUpload: (name: string) => Promise<void>;
+  /** Called when this tab's own edit key was replaced. */
+  onSessionKey: (key: string) => void;
   onClose: () => void;
 }
 
-export function ShareDialog({ session, role, onUpload, onClose }: Props) {
+export function ShareDialog({ session, role, signedIn, onUpload, onSessionKey, onClose }: Props) {
   const [name, setName] = useState('Családfám');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewKey, setViewKey] = useState<string | null>(null);
+  // The owner may have opened the tree without a key; a fresh one is made on request.
+  const [editKey, setEditKey] = useState<string | undefined>(session?.key);
+  const isOwner = role === 'owner';
+  useEffect(() => setEditKey(session?.key), [session?.key]);
 
   useEffect(() => {
-    if (!session || role !== 'editor') return;
+    if (!session || role === 'viewer') return;
     api
       .viewKey(session)
       .then((r) => setViewKey(r.viewKey))
@@ -31,6 +38,25 @@ export function ShareDialog({ session, role, onUpload, onClose }: Props) {
       setError(e instanceof Error ? e.message : 'A feltöltés nem sikerült.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const rotate = async (which: 'edit' | 'view') => {
+    if (!session) return;
+    const warning =
+      which === 'edit'
+        ? 'Új szerkesztői link készül, a régi szerkesztői link azonnal megszűnik. Folytatod?'
+        : 'Új csak olvasható link készül, a régi azonnal megszűnik. Folytatod?';
+    if ((which === 'view' || editKey) && !confirm(warning)) return;
+    try {
+      const { key } = await api.rotateKey(session, which);
+      if (which === 'edit') {
+        setEditKey(key);
+        // Keep this tab working if it was using the old key.
+        if (session.key) onSessionKey(key);
+      } else setViewKey(key);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Nem sikerült új linket készíteni.');
     }
   };
 
@@ -50,6 +76,12 @@ export function ShareDialog({ session, role, onUpload, onClose }: Props) {
               A családfa most csak ebben a böngészőben van elmentve. Töltsd fel a szerverre, hogy más eszközről is
               elérd, és linkkel megoszthasd.
             </p>
+            {!signedIn && (
+              <p className="muted">
+                Tipp: ha előbb bejelentkezel, a fa a fiókodhoz kerül, és később a „Saját családfáim” listából is
+                megnyithatod.
+              </p>
+            )}
             <label>
               A családfa neve
               <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
@@ -60,17 +92,28 @@ export function ShareDialog({ session, role, onUpload, onClose }: Props) {
           </>
         ) : (
           <>
-            <LinkField
-              label="Szerkesztői link"
-              hint="Aki ismeri, szerkesztheti a fát. Ezt a linket tedd el, ezzel tudod később is megnyitni."
-              url={shareUrl(session.treeId, session.key)}
-            />
+            {editKey ? (
+              <LinkField
+                label="Szerkesztői link"
+                hint="Aki ismeri, szerkesztheti a fát."
+                url={shareUrl(session.treeId, editKey)}
+                onRotate={isOwner ? () => rotate('edit') : undefined}
+              />
+            ) : (
+              isOwner && <button onClick={() => rotate('edit')}>Szerkesztői link készítése</button>
+            )}
             {viewKey && (
               <LinkField
                 label="Csak olvasható link"
                 hint="Aki ismeri, megnézheti a fát, de nem módosíthatja."
                 url={shareUrl(session.treeId, viewKey)}
+                onRotate={isOwner ? () => rotate('view') : undefined}
               />
+            )}
+            {isOwner && (
+              <p className="muted">
+                Tulajdonosként bejelentkezve link nélkül is eléred a fát. Az „Új link” a régit azonnal érvényteleníti.
+              </p>
             )}
           </>
         )}
@@ -80,7 +123,17 @@ export function ShareDialog({ session, role, onUpload, onClose }: Props) {
   );
 }
 
-function LinkField({ label, hint, url }: { label: string; hint: string; url: string }) {
+function LinkField({
+  label,
+  hint,
+  url,
+  onRotate,
+}: {
+  label: string;
+  hint: string;
+  url: string;
+  onRotate?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="link-field">
@@ -95,6 +148,7 @@ function LinkField({ label, hint, url }: { label: string; hint: string; url: str
           >
             {copied ? 'Másolva' : 'Másolás'}
           </button>
+          {onRotate && <button onClick={onRotate}>Új link</button>}
         </div>
       </label>
       <small>{hint}</small>
