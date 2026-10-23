@@ -46,9 +46,30 @@ export function useServerSync(
     }
   });
 
+  /** The server's change log no longer reaches back to our version: start over from the full tree. */
+  const reload = async (s: ServerSession) => {
+    const st = state.current;
+    const r = await api.load(s);
+    if (!st.base) return;
+    const pending = diffTrees(st.base, latest.current);
+    const changes = diffTrees(st.base, r.tree);
+    st.base = r.tree;
+    st.version = r.version;
+    const merged = applyChanges(st.base, pending);
+    latest.current = merged;
+    onRemoteRef.current(merged, changes);
+  };
+
   const pull = async (s: ServerSession) => {
     const st = state.current;
-    const { version, changes } = await api.changesSince(s, st.version);
+    let result: { version: number; changes: Change[] };
+    try {
+      result = await api.changesSince(s, st.version);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 410) return reload(s);
+      throw e;
+    }
+    const { version, changes } = result;
     if (!changes.length || !st.base) {
       st.version = version;
       return;

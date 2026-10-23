@@ -5,6 +5,7 @@ import type { User } from '../sync/api';
 import type { SyncStatus } from '../sync/useServerSync';
 import { generateTree, sampleTree } from '../model/sample';
 import { parseTree } from '../model/storage';
+import { isValidTree, sanitizeTree } from '../sync/changes';
 import { emptyTree, type FamilyTree, type Id } from '../model/types';
 import { PersonPicker } from './PersonPicker';
 import { askConfirm } from './ConfirmDialog';
@@ -29,6 +30,7 @@ interface Props {
   onShare?: () => void;
   user?: User | null;
   onAccount?: () => void;
+  onPrivacy: () => void;
 }
 
 const STATUS_LABEL: Record<Props['syncStatus'], string> = {
@@ -52,7 +54,7 @@ function download(content: string, type: string, filename: string) {
 
 export function Toolbar(props: Props) {
   const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
-  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare, user, onAccount } = props;
+  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare, user, onAccount, onPrivacy } = props;
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportAs = (format: string) => {
@@ -63,7 +65,11 @@ export function Toolbar(props: Props) {
   const importJson = async (file: File) => {
     try {
       const text = await file.text();
-      onReplace(/\.ged(com)?$/i.test(file.name) ? importGedcom(text) : parseTree(text));
+      if (/\.ged(com)?$/i.test(file.name)) return onReplace(importGedcom(text));
+      // Files can come from anywhere: check every record, and drop fields the app does not know.
+      const imported = parseTree(text);
+      if (!isValidTree(imported)) throw new Error('A fájl hibás vagy nem családfa adatot tartalmaz.');
+      onReplace(sanitizeTree(imported));
     } catch (e) {
       onError(e instanceof Error ? e.message : 'A fájl nem olvasható.');
     }
@@ -146,6 +152,9 @@ export function Toolbar(props: Props) {
           </button>
         )}
         {onAccount && <button onClick={onAccount}>{user ? user.name : 'Bejelentkezés'}</button>}
+        <button onClick={onPrivacy} title="Adatvédelem" aria-label="Adatvédelem">
+          🔒
+        </button>
       </div>
     </header>
   );

@@ -9,6 +9,8 @@ export interface TreeRepository {
   load(): FamilyTree | null;
   /** Returns false if the tree could not be stored (e.g. storage full). */
   save(tree: FamilyTree): boolean;
+  /** Removes the stored tree from this device. */
+  clear(): void;
 }
 
 const KEY = 'famtree:v1';
@@ -29,6 +31,13 @@ export const localRepository: TreeRepository = {
     } catch {
       // Quota exceeded or storage disabled: the app keeps working in memory.
       return false;
+    }
+  },
+  clear() {
+    try {
+      localStorage.removeItem(KEY);
+    } catch {
+      // Storage disabled: nothing is stored.
     }
   },
 };

@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { CHANGE_LOG_DAYS, DEFAULT_PRIVACY, isPrivacySettings, type PrivacySettings } from '../src/model/privacy';
 import type { Change } from '../src/sync/changes';
 import type { FamilyTree } from '../src/model/types';
 
@@ -7,6 +8,8 @@ import type { FamilyTree } from '../src/model/types';
  * SQLite storage. Persons and unions are stored as one row each, so edits
  * touch only the changed rows; every accepted change set is also appended to
  * a change log, letting clients fetch just what happened since their version.
+ * The log is kept only for CHANGE_LOG_DAYS, so deleted data does not linger;
+ * a client that falls further behind reloads the whole tree.
  */
 
 export type Role = 'owner' | 'editor' | 'viewer';
@@ -62,7 +65,12 @@ export class TreeStore {
     // Added with user accounts; older databases get the column on start-up.
     const columns = this.db.prepare('PRAGMA table_info(trees)').all() as { name: string }[];
     if (!columns.some((c) => c.name === 'owner_id')) this.db.exec('ALTER TABLE trees ADD COLUMN owner_id TEXT');
+    if (!columns.some((c) => c.name === 'privacy')) this.db.exec('ALTER TABLE trees ADD COLUMN privacy TEXT');
     this.db.exec('CREATE INDEX IF NOT EXISTS trees_owner ON trees(owner_id)');
+    // Log rows from before retention existed have no date and are pruned on the first sweep.
+    const changeColumns = this.db.prepare('PRAGMA table_info(changes)').all() as { name: string }[];
+    if (!changeColumns.some((c) => c.name === 'created_at'))
+      this.db.exec('ALTER TABLE changes ADD COLUMN created_at TEXT');
   }
 
   /** Returns the caller's role for a tree, or null if neither the user nor the key grants anything. */
@@ -76,6 +84,23 @@ export class TreeStore {
     if (timingSafeEqual(hash(key), row.edit_key_hash)) return 'editor';
     if (timingSafeEqual(hash(key), hash(row.view_key))) return 'viewer';
     return null;
+  }
+
+  hasOwner(treeId: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM trees WHERE id = ? AND owner_id IS NOT NULL').get(treeId);
+  }
+
+  privacy(treeId: string): PrivacySettings {
+    const row = this.db.prepare('SELECT privacy FROM trees WHERE id = ?').get(treeId) as { privacy: string | null };
+    const stored = row?.privacy ? JSON.parse(row.privacy) : null;
+    return isPrivacySettings(stored) ? stored : DEFAULT_PRIVACY;
+  }
+
+  setPrivacy(treeId: string, settings: PrivacySettings) {
+    const { hideLiving, hidePhotos, hideNotes } = settings;
+    this.db
+      .prepare('UPDATE trees SET privacy = ? WHERE id = ?')
+      .run(JSON.stringify({ hideLiving, hidePhotos, hideNotes }), treeId);
   }
 
   exists(treeId: string): boolean {
@@ -156,12 +181,20 @@ export class TreeStore {
     })();
   }
 
-  changesSince(treeId: string, since: number): { version: number; changes: Change[] } {
+  /** Returns null when the log no longer reaches back to `since` (the client must reload). */
+  changesSince(treeId: string, since: number): { version: number; changes: Change[] } | null {
     return this.db.transaction(() => {
+      const { version } = this.meta(treeId);
+      if (since < version) {
+        const oldest = this.db.prepare('SELECT MIN(version) AS v FROM changes WHERE tree_id = ?').get(treeId) as {
+          v: number | null;
+        };
+        if (oldest.v === null || oldest.v > since + 1) return null;
+      }
       const rows = this.db
         .prepare('SELECT data FROM changes WHERE tree_id = ? AND version > ? ORDER BY version')
         .all(treeId, since) as { data: string }[];
-      return { version: this.meta(treeId).version, changes: rows.flatMap((r) => JSON.parse(r.data) as Change[]) };
+      return { version, changes: rows.flatMap((r) => JSON.parse(r.data) as Change[]) };
     })();
   }
 
@@ -184,15 +217,26 @@ export class TreeStore {
           this.db.prepare(`DELETE FROM ${table} WHERE tree_id = ? AND id = ?`).run(treeId, c.id);
         }
       }
-      this.db.prepare('INSERT INTO changes VALUES (?, ?, ?)').run(treeId, next, JSON.stringify(changes));
+      const now = new Date().toISOString();
       this.db
-        .prepare('UPDATE trees SET version = ?, updated_at = ? WHERE id = ?')
-        .run(next, new Date().toISOString(), treeId);
+        .prepare('INSERT INTO changes (tree_id, version, data, created_at) VALUES (?, ?, ?, ?)')
+        .run(treeId, next, JSON.stringify(changes), now);
+      this.db.prepare('UPDATE trees SET version = ?, updated_at = ? WHERE id = ?').run(next, now, treeId);
       return next;
     })();
   }
 
   delete(treeId: string) {
     this.db.prepare('DELETE FROM trees WHERE id = ?').run(treeId);
+  }
+
+  deleteByOwner(ownerId: string) {
+    this.db.prepare('DELETE FROM trees WHERE owner_id = ?').run(ownerId);
+  }
+
+  /** Drops change log entries older than the retention period. */
+  pruneChangeLog(days = CHANGE_LOG_DAYS) {
+    const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+    this.db.prepare('DELETE FROM changes WHERE created_at IS NULL OR created_at <= ?').run(cutoff);
   }
 }

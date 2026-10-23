@@ -272,7 +272,7 @@ const PersonNode = memo(function PersonNode({
   const maxChars = person.photo ? 15 : 20;
   return (
     <g
-      className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${detailed ? '' : ' overview'}${pathState ? ` path-${pathState}` : ''}`}
+      className={`person gender-${person.gender}${selected ? ' selected' : ''}${isFocusRoot ? ' focus-root' : ''}${person.deathYear != null ? ' deceased' : ''}${person.redacted ? ' redacted' : ''}${detailed ? '' : ' overview'}${pathState ? ` path-${pathState}` : ''}`}
       transform={`translate(${box.x - NODE_W / 2},${box.y})`}
       onClick={(e) => {
         e.stopPropagation();

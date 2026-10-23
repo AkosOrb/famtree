@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LIVING_YEARS, type PrivacySettings } from '../model/privacy';
 import { api, shareUrl, type Role, type ServerSession } from '../sync/api';
 import { askConfirm } from './ConfirmDialog';
 
@@ -9,10 +10,15 @@ interface Props {
   onUpload: (name: string) => Promise<void>;
   /** Called when this tab's own edit key was replaced. */
   onSessionKey: (key: string) => void;
+  /** What view-link visitors may see; undefined for viewers, who cannot see the settings. */
+  privacy?: PrivacySettings;
+  canSetPrivacy: boolean;
+  onPrivacy: (settings: PrivacySettings) => void;
   onClose: () => void;
 }
 
-export function ShareDialog({ session, role, signedIn, onUpload, onSessionKey, onClose }: Props) {
+export function ShareDialog(props: Props) {
+  const { session, role, signedIn, onUpload, onSessionKey, privacy, canSetPrivacy, onPrivacy, onClose } = props;
   const [name, setName] = useState('Családfám');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +122,20 @@ export function ShareDialog({ session, role, signedIn, onUpload, onSessionKey, o
                 Tulajdonosként bejelentkezve link nélkül is eléred a fát. Az „Új link” a régit azonnal érvényteleníti.
               </p>
             )}
+            {privacy && (
+              <PrivacySettingsForm
+                settings={privacy}
+                disabled={!canSetPrivacy}
+                onChange={async (next) => {
+                  setError(null);
+                  try {
+                    onPrivacy(await api.setPrivacy(session, next));
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : 'A beállítás nem menthető.');
+                  }
+                }}
+              />
+            )}
           </>
         )}
         {error && <p className="error">{error}</p>}
@@ -154,5 +174,49 @@ function LinkField({
       </label>
       <small>{hint}</small>
     </div>
+  );
+}
+
+const PRIVACY_OPTIONS: { key: keyof PrivacySettings; label: string; hint: string }[] = [
+  {
+    key: 'hideLiving',
+    label: 'Élő személyek elrejtése',
+    hint: `Akinek nincs halálozási éve, és ${LIVING_YEARS} évnél fiatalabb (vagy nem ismert a születési éve), „Rejtett személy”-ként jelenik meg.`,
+  },
+  { key: 'hidePhotos', label: 'Fényképek elrejtése', hint: 'A fényképek nem kerülnek át.' },
+  { key: 'hideNotes', label: 'Megjegyzések elrejtése', hint: 'A megjegyzések nem kerülnek át.' },
+];
+
+function PrivacySettingsForm({
+  settings,
+  disabled,
+  onChange,
+}: {
+  settings: PrivacySettings;
+  disabled: boolean;
+  onChange: (settings: PrivacySettings) => void;
+}) {
+  return (
+    <fieldset className="privacy-settings" disabled={disabled}>
+      <legend className="section-title">Adatvédelem a csak olvasható linken</legend>
+      {PRIVACY_OPTIONS.map((o) => (
+        <label key={o.key} className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings[o.key]}
+            onChange={(e) => onChange({ ...settings, [o.key]: e.target.checked })}
+          />
+          <span>
+            {o.label}
+            <small>{o.hint}</small>
+          </span>
+        </label>
+      ))}
+      <small className="muted">
+        {disabled
+          ? 'Ezeket csak a fa tulajdonosa módosíthatja.'
+          : 'A rejtett adatokat a szerver el sem küldi. Egy-egy személy a saját adatlapján külön is elrejthető. A szerkesztői link mindig a teljes fát mutatja.'}
+      </small>
+    </fieldset>
   );
 }

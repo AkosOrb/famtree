@@ -133,57 +133,79 @@ export function PersonPanel({
         }
       />
 
-      <form className="person-form" onSubmit={save}>
-        <fieldset disabled={readOnly}>
-          <div className="row">
+      {person.redacted ? (
+        <p className="muted">Ennek a személynek az adatai adatvédelmi okból rejtettek.</p>
+      ) : (
+        <form className="person-form" onSubmit={save}>
+          <fieldset disabled={readOnly}>
+            <div className="row">
+              <label>
+                Vezetéknév
+                <input value={draft.lastName} onChange={(e) => setDraft({ ...draft, lastName: e.target.value })} />
+              </label>
+              <label>
+                Keresztnév
+                <input value={draft.firstName} onChange={(e) => setDraft({ ...draft, firstName: e.target.value })} />
+              </label>
+            </div>
+            <div className="row">
+              <label>
+                Nem
+                <select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as Gender })}>
+                  {GENDERS.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Született
+                <input
+                  inputMode="numeric"
+                  value={draft.birthYear}
+                  onChange={(e) => setDraft({ ...draft, birthYear: e.target.value })}
+                />
+              </label>
+              <label>
+                Elhunyt
+                <input
+                  inputMode="numeric"
+                  value={draft.deathYear}
+                  onChange={(e) => setDraft({ ...draft, deathYear: e.target.value })}
+                />
+              </label>
+            </div>
             <label>
-              Vezetéknév
-              <input value={draft.lastName} onChange={(e) => setDraft({ ...draft, lastName: e.target.value })} />
+              Megjegyzés
+              <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
             </label>
-            <label>
-              Keresztnév
-              <input value={draft.firstName} onChange={(e) => setDraft({ ...draft, firstName: e.target.value })} />
-            </label>
-          </div>
-          <div className="row">
-            <label>
-              Nem
-              <select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as Gender })}>
-                {GENDERS.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Született
-              <input
-                inputMode="numeric"
-                value={draft.birthYear}
-                onChange={(e) => setDraft({ ...draft, birthYear: e.target.value })}
-              />
-            </label>
-            <label>
-              Elhunyt
-              <input
-                inputMode="numeric"
-                value={draft.deathYear}
-                onChange={(e) => setDraft({ ...draft, deathYear: e.target.value })}
-              />
-            </label>
-          </div>
-          <label>
-            Megjegyzés
-            <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
-          </label>
+            {!readOnly && (
+              <button type="submit" className="primary" disabled={!dirty}>
+                Mentés
+              </button>
+            )}
+          </fieldset>
           {!readOnly && (
-            <button type="submit" className="primary" disabled={!dirty}>
-              Mentés
-            </button>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={!!person.private}
+                onChange={(e) =>
+                  edit(
+                    (t) => updatePerson(t, personId, { private: e.target.checked || undefined }),
+                    (t) => t,
+                  )
+                }
+              />
+              <span>
+                Rejtett a csak olvasható linken
+                <small>A link birtokosai csak annyit látnak, hogy itt egy „Rejtett személy” van.</small>
+              </span>
+            </label>
           )}
-        </fieldset>
-      </form>
+        </form>
+      )}
 
       <section className="relatives">
         <RelativeList title="Szülők" ids={relatives.parents} tree={tree} onSelect={onSelect} />

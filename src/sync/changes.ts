@@ -6,13 +6,11 @@ import type { FamilyTree, Gender, Id, Person, Union } from '../model/types';
  * so diffing two snapshots is a cheap reference comparison per record and the
  * payload stays proportional to what was edited, not to the tree size.
  */
-export type Change =
-  | { kind: 'person'; id: Id; value: Person | null }
-  | { kind: 'union'; id: Id; value: Union | null };
+export type Change = { kind: 'person'; id: Id; value: Person | null } | { kind: 'union'; id: Id; value: Union | null };
 
 export function diffTrees(from: FamilyTree, to: FamilyTree): Change[] {
   const changes: Change[] = [];
-  const diff = <T,>(kind: 'person' | 'union', a: Record<Id, T>, b: Record<Id, T>) => {
+  const diff = <T>(kind: 'person' | 'union', a: Record<Id, T>, b: Record<Id, T>) => {
     if (a === b) return;
     for (const id in b) if (a[id] !== b[id]) changes.push({ kind, id, value: b[id] } as Change);
     for (const id in a) if (!(id in b)) changes.push({ kind, id, value: null } as Change);
@@ -57,9 +55,45 @@ export function isValidChange(c: unknown): c is Change {
       isYear(v.birthYear) &&
       isYear(v.deathYear) &&
       (v.notes === undefined || isStr(v.notes, 10000)) &&
-      (v.photo === undefined || isPhotoDataUrl(v.photo))
+      (v.photo === undefined || isPhotoDataUrl(v.photo)) &&
+      (v.private === undefined || typeof v.private === 'boolean')
     );
   }
   if (kind === 'union') return isIdList(v.partners, 1, 2) && isIdList(v.children, 0, 500);
   return false;
+}
+
+const PERSON_FIELDS = ['id', 'firstName', 'lastName', 'gender', 'birthYear', 'deathYear', 'notes', 'photo', 'private'];
+const UNION_FIELDS = ['id', 'partners', 'children'];
+
+/**
+ * Keeps only known fields of a validated change, so clients cannot store
+ * arbitrary extra data (or a forged `redacted` flag) on the server.
+ */
+export function sanitizeChange(c: Change): Change {
+  if (!c.value) return { kind: c.kind, id: c.id, value: null } as Change;
+  const value: Record<string, unknown> = {};
+  for (const k of c.kind === 'person' ? PERSON_FIELDS : UNION_FIELDS) {
+    const v = (c.value as unknown as Record<string, unknown>)[k];
+    if (v !== undefined) value[k] = v;
+  }
+  return { kind: c.kind, id: c.id, value } as unknown as Change;
+}
+
+/** Validates a whole tree (an upload or an imported file) record by record. */
+export function isValidTree(t: unknown): t is FamilyTree {
+  if (!t || typeof t !== 'object') return false;
+  const tree = t as Partial<FamilyTree>;
+  if (tree.version !== 1 || !tree.persons || !tree.unions) return false;
+  if (typeof tree.persons !== 'object' || typeof tree.unions !== 'object') return false;
+  return (
+    Object.entries(tree.persons).every(([id, value]) => isValidChange({ kind: 'person', id, value })) &&
+    Object.entries(tree.unions).every(([id, value]) => isValidChange({ kind: 'union', id, value }))
+  );
+}
+
+/** Applies sanitizeChange to every record of a validated tree. */
+export function sanitizeTree(tree: FamilyTree): FamilyTree {
+  const changes = diffTrees({ version: 1, persons: {}, unions: {} }, tree).map(sanitizeChange);
+  return applyChanges({ version: 1, persons: {}, unions: {} }, changes);
 }
