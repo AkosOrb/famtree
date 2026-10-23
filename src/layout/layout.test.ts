@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { generateTree, inLawTree, sampleTree } from '../model/sample';
 import { computeLayout, NODE_W, PARTNER_GAP } from './layout';
-import { countCrossings } from './quality';
+import { countCrossings, countIntrusions } from './quality';
+import { addChild, addParent, addPartner } from '../model/operations';
 
 function assertNoOverlap(layout: ReturnType<typeof computeLayout>) {
   const rows = new Map<number, number[]>();
@@ -39,6 +40,7 @@ describe('layout with families that married in', () => {
     const t = inLawTree();
     const layout = computeLayout(t);
     expect(countCrossings(t, layout)).toBe(0);
+    expect(countIntrusions(t, layout)).toBe(0);
     assertNoOverlap(layout);
     const x = (name: string) =>
       layout.persons.get(Object.values(t.persons).find((p) => `${p.lastName} ${p.firstName}` === name)!.id)!.x;
@@ -52,6 +54,29 @@ describe('layout with families that married in', () => {
     const layout = computeLayout(t);
     const edges = Object.values(t.unions).reduce((n, u) => n + u.children.length, 0);
     expect(countCrossings(t, layout)).toBeLessThan(edges * 0.05);
+    expect(countIntrusions(t, layout)).toBeLessThan(edges * 0.1);
+    assertNoOverlap(layout);
+  });
+
+  it('re-arranges as relatives are added, keeping sibling lines off unrelated cards', () => {
+    let t = inLawTree();
+    const find = (name: string) => Object.values(t.persons).find((p) => `${p.lastName} ${p.firstName}` === name)!.id;
+    const person = (lastName: string, firstName: string, gender: 'male' | 'female') => ({
+      lastName,
+      firstName,
+      gender,
+    });
+    let id: string;
+    [t, id] = addPartner(t, find('Kovács Ferenc'), person('Fekete', 'Anikó', 'female'));
+    [t] = addParent(t, id, person('Fekete', 'Béla', 'male'));
+    [t] = addParent(t, id, person('Fehér', 'Erika', 'female'));
+    [t, id] = addPartner(t, find('Nagy Bence'), person('Lakatos', 'Nóra', 'female'));
+    [t] = addParent(t, id, person('Lakatos', 'Ottó', 'male'));
+    [t] = addChild(t, find('Fekete Béla'), person('Fekete', 'Zoltán', 'male'), find('Fehér Erika'));
+    const layout = computeLayout(t);
+    expect(countIntrusions(t, layout)).toBe(0);
+    // Three families married into one sibling group: one crossing cannot be avoided.
+    expect(countCrossings(t, layout)).toBeLessThanOrEqual(1);
     assertNoOverlap(layout);
   });
 });

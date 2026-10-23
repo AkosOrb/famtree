@@ -214,10 +214,15 @@ function bestOrdering(tree: FamilyTree, index: TreeIndex, layers: Block[][], blo
   const initial = snapshot();
   let best = initial;
   let bestScore = Infinity;
-  for (const pull of [SIBLING_PULL, 0]) {
+  for (const [pull, together] of [
+    [SIBLING_PULL, true],
+    [0, true],
+    [SIBLING_PULL, false],
+    [0, false],
+  ] as const) {
     restore(initial);
-    reduceCrossings(tree, index, layers, blockOf, pull);
-    const score = countRowCrossings(tree, layers, blockOf);
+    reduceCrossings(tree, index, layers, blockOf, pull, together);
+    const score = countRowCrossings(tree, index, layers, blockOf);
     if (score < bestScore) {
       best = snapshot();
       bestScore = score;
@@ -226,8 +231,11 @@ function bestOrdering(tree: FamilyTree, index: TreeIndex, layers: Block[][], blo
   restore(best);
 }
 
-/** Crossings of parent→child lines in the current row order, in O(E log E) per pair of rows. */
-function countRowCrossings(tree: FamilyTree, layers: Block[][], blockOf: Map<Id, Block>): number {
+/**
+ * Crossings of parent→child lines in the current row order, in O(E log E) per pair
+ * of rows, plus the cards a sibling line runs over without being related to them.
+ */
+function countRowCrossings(tree: FamilyTree, index: TreeIndex, layers: Block[][], blockOf: Map<Id, Block>): number {
   const slot = new Map<Id, number>();
   for (const layer of layers) {
     let i = 0;
@@ -249,6 +257,23 @@ function countRowCrossings(tree: FamilyTree, layers: Block[][], blockOf: Map<Id,
   for (const edges of edgesByRow.values()) {
     edges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     total += inversions(edges.map((e) => e[1]));
+  }
+  for (const u of Object.values(tree.unions)) {
+    const gen = blockOf.get(u.partners[0])!.gen;
+    const kids = u.children.filter((c) => blockOf.get(c)!.gen === gen + 1);
+    if (kids.length < 2) continue;
+    const slots = kids.map((c) => slot.get(c)!);
+    const lo = Math.min(...slots);
+    const hi = Math.max(...slots);
+    const inside = new Set(kids);
+    for (const c of kids) {
+      for (const uid of index.partnerUnions.get(c) ?? []) {
+        for (const p of tree.unions[uid].partners) {
+          if (slot.get(p)! > lo && slot.get(p)! < hi && blockOf.get(p)!.gen === gen + 1) inside.add(p);
+        }
+      }
+    }
+    total += hi - lo + 1 - inside.size;
   }
   return total;
 }
@@ -280,6 +305,7 @@ function reduceCrossings(
   layers: Block[][],
   blockOf: Map<Id, Block>,
   siblingPull: number,
+  together: boolean,
 ) {
   const slot = new Map<Id, number>();
   const blockPos = new Map<Block, number>();
@@ -413,6 +439,84 @@ function reduceCrossings(
     return n;
   };
 
+  // Lines may only connect relatives: a block with no parents in the row above
+  // must not sit between siblings, or their shared line would run over it.
+  const parentUnions = (b: Block) => {
+    const out: Id[] = [];
+    for (const m of b.members) {
+      const pu = index.parentUnion.get(m);
+      if (pu && blockOf.get(tree.unions[pu].partners[0])!.gen === b.gen - 1) out.push(pu);
+    }
+    return out;
+  };
+  const splitsSiblings = (layer: Block[], i: number) => {
+    if (i === 0 || i + 1 >= layer.length || parentUnions(layer[i]).length) return false;
+    const left = new Set(parentUnions(layer[i - 1]));
+    return parentUnions(layer[i + 1]).some((pu) => left.has(pu));
+  };
+  /** Crossings between the edges of one block and the rest of its row. */
+  const crossingsOf = (layer: Block[], b: Block) => {
+    const own = (m: Id) => slot.get(m)!;
+    const mine = edgesOf(b, own);
+    let n = 0;
+    for (const other of layer) {
+      if (other === b) continue;
+      for (const e of edgesOf(other, own)) {
+        for (const f of mine) if (e.up === f.up && (e.self - f.self) * (e.other - f.other) < 0) n++;
+      }
+    }
+    return n;
+  };
+  /**
+   * Moves blocks without parents out of sibling groups, to the side where they
+   * cross fewer lines; unless `force`, only when that costs fewer crossings than
+   * the cards a sibling line would run over.
+   */
+  const keepSiblingsTogether = (layer: Block[], force: boolean) => {
+    const spans = new Map<Id, [number, number]>();
+    layer.forEach((b, i) => {
+      for (const pu of parentUnions(b)) {
+        const span = spans.get(pu);
+        spans.set(pu, span ? [span[0], i] : [i, i]);
+      }
+    });
+    const groups: [number, number][] = [];
+    for (const span of [...spans.values()].sort((x, y) => x[0] - y[0])) {
+      const last = groups[groups.length - 1];
+      if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+      else groups.push([...span]);
+    }
+    const costAt = (b: Block, i: number) => {
+      layer.splice(i, 0, b);
+      record(layer);
+      const cost = crossingsOf(layer, b);
+      layer.splice(i, 1);
+      return cost;
+    };
+    let moved = false;
+    for (const [first, last] of groups.reverse()) {
+      const head = layer[first];
+      const tail = layer[last];
+      for (const b of layer.slice(first + 1, last).filter((x) => !parentUnions(x).length)) {
+        const at = layer.indexOf(b);
+        const stay = force ? Infinity : crossingsOf(layer, b) + b.members.length;
+        layer.splice(at, 1);
+        const left = layer.indexOf(head);
+        const right = layer.indexOf(tail) + 1;
+        const leftCost = costAt(b, left);
+        const rightCost = costAt(b, right);
+        const nearLeft = at - left <= right - at;
+        const best = leftCost < rightCost || (leftCost === rightCost && nearLeft) ? left : right;
+        if (Math.min(leftCost, rightCost) < stay) {
+          layer.splice(best, 0, b);
+          moved = true;
+        } else layer.splice(at, 0, b);
+        record(layer);
+      }
+    }
+    return moved;
+  };
+
   for (let pass = 0; pass < 4; pass++) {
     let improved = false;
     for (const layer of layers) {
@@ -432,13 +536,19 @@ function reduceCrossings(
         const b = edgesOf(layer[i + 1], own);
         if (between(b, a) < between(a, b)) {
           [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
+          if (together && (splitsSiblings(layer, i) || splitsSiblings(layer, i + 1))) {
+            [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
+            continue;
+          }
           record(layer);
           improved = true;
         }
       }
+      if (keepSiblingsTogether(layer, together)) improved = true;
     }
     if (!improved) break;
   }
+  for (const layer of layers) keepSiblingsTogether(layer, together);
 }
 
 const memberCenter = (block: Block, id: Id) => block.x + block.members.indexOf(id) * STEP + NODE_W / 2;
