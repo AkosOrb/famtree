@@ -7,6 +7,7 @@ import { generateTree, sampleTree } from '../model/sample';
 import { parseTree } from '../model/storage';
 import { emptyTree, type FamilyTree, type Id } from '../model/types';
 import { PersonPicker } from './PersonPicker';
+import { askConfirm } from './ConfirmDialog';
 
 interface Props {
   tree: FamilyTree;
@@ -68,9 +69,9 @@ export function Toolbar(props: Props) {
     }
   };
 
-  const loadDemo = (value: string) => {
+  const loadDemo = async (value: string) => {
     if (!value) return;
-    if (Object.keys(tree.persons).length && !confirm('A jelenlegi családfa lecserélődik. Folytatod?')) return;
+    if (Object.keys(tree.persons).length && !(await askConfirm('A jelenlegi családfa lecserélődik. Folytatod?', 'Csere'))) return;
     if (value === 'sample') onReplace(sampleTree());
     else if (value === 'empty') onReplace(emptyTree());
     else onReplace(generateTree(Number(value)));
@@ -125,7 +126,7 @@ export function Toolbar(props: Props) {
                 e.target.value = '';
               }}
             />
-            <select value="" onChange={(e) => loadDemo(e.target.value)} aria-label="Minta adatok betöltése">
+            <select value="" onChange={(e) => void loadDemo(e.target.value)} aria-label="Minta adatok betöltése">
               <option value="">Minta adatok…</option>
               <option value="sample">Kis mintacsalád</option>
               <option value="500">Generált: 500 fő</option>

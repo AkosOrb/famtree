@@ -13,14 +13,15 @@
   --other: #8a6bbf;
   --unknown: #9b978c;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
-  color-scheme: light dark;
+  color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
 }
 
+/* Dark palette: follows the OS setting unless a page theme is set explicitly. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #1b1c1e;
     --surface: #26282b;
     --border: #3a3d41;
@@ -30,7 +31,26 @@
     --accent-soft: #23362f;
     --danger: #e06c6c;
     --edge: #6f6d68;
+    color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #1b1c1e;
+  --surface: #26282b;
+  --border: #3a3d41;
+  --text: #ecebe7;
+  --muted: #a3a19b;
+  --accent: #6cc3a8;
+  --accent-soft: #23362f;
+  --danger: #e06c6c;
+  --edge: #6f6d68;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
 }
 
 * {

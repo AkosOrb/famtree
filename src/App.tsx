@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { PersonPanel } from './components/PersonPanel';
 import { AccountDialog } from './components/AccountDialog';
+import { ConfirmHost } from './components/ConfirmDialog';
 import { ShareDialog } from './components/ShareDialog';
 import { Toolbar } from './components/Toolbar';
 import { TreeCanvas } from './components/TreeCanvas';
@@ -277,6 +278,7 @@ export function App() {
           onClose={() => setAccountOpen(false)}
         />
       )}
+      <ConfirmHost />
     </div>
   );
 }

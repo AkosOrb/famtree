@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, shareUrl, type Role, type ServerSession } from '../sync/api';
+import { askConfirm } from './ConfirmDialog';
 
 interface Props {
   session: ServerSession | null;
@@ -47,7 +48,7 @@ export function ShareDialog({ session, role, signedIn, onUpload, onSessionKey, o
       which === 'edit'
         ? 'Új szerkesztői link készül, a régi szerkesztői link azonnal megszűnik. Folytatod?'
         : 'Új csak olvasható link készül, a régi azonnal megszűnik. Folytatod?';
-    if ((which === 'view' || editKey) && !confirm(warning)) return;
+    if ((which === 'view' || editKey) && !(await askConfirm(warning, 'Új link'))) return;
     try {
       const { key } = await api.rotateKey(session, which);
       if (which === 'edit') {

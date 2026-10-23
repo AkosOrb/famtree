@@ -12,6 +12,7 @@ import {
 } from '../model/operations';
 import { fullName, type FamilyTree, type Gender, type Id, type PersonInput } from '../model/types';
 import { PersonPicker } from './PersonPicker';
+import { askConfirm } from './ConfirmDialog';
 
 export type EditFn = <T>(fn: (t: FamilyTree) => T, pick: (r: T) => FamilyTree) => T | undefined;
 
@@ -88,8 +89,8 @@ export function PersonPanel({ tree, index, personId, edit, onSelect, onFocusOn, 
     );
   };
 
-  const remove = () => {
-    if (!confirm(`Biztosan törlöd: ${fullName(person)}? A kapcsolatai is törlődnek.`)) return;
+  const remove = async () => {
+    if (!(await askConfirm(`Biztosan törlöd: ${fullName(person)}? A kapcsolatai is törlődnek.`, 'Törlés'))) return;
     edit(
       (t) => removePerson(t, personId),
       (t) => t,
