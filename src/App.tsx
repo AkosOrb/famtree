@@ -10,7 +10,7 @@ import { TreeCanvas } from './components/TreeCanvas';
 import { computeLayout } from './layout/layout';
 import { buildIndex } from './model/graph';
 import { addPerson, TreeError } from './model/operations';
-import { sampleTree } from './model/sample';
+import { inLawTree } from './model/sample';
 import { findPath } from './model/relationship';
 import { focusSubtree } from './model/subtree';
 import { DEFAULT_PRIVACY, type PrivacySettings } from './model/privacy';
@@ -42,7 +42,7 @@ export function App() {
   const [remote, setRemote] = useState<RemoteTree | null>(null);
   const [history, dispatch] = useReducer(historyReducer, undefined, () => ({
     past: [],
-    present: session ? emptyTree() : (localRepository.load() ?? sampleTree()),
+    present: session ? emptyTree() : (localRepository.load() ?? inLawTree()),
     future: [],
   }));
   const tree = history.present;

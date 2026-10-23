@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateTree, sampleTree } from '../model/sample';
+import { generateTree, inLawTree, sampleTree } from '../model/sample';
 import { computeLayout, NODE_W, PARTNER_GAP } from './layout';
+import { countCrossings } from './quality';
 
 function assertNoOverlap(layout: ReturnType<typeof computeLayout>) {
   const rows = new Map<number, number[]>();
@@ -30,5 +31,27 @@ describe('layout', () => {
     expect(layout.persons.size).toBe(Object.keys(t.persons).length);
     assertNoOverlap(layout);
     expect(elapsed).toBeLessThan(3000);
+  });
+});
+
+describe('layout with families that married in', () => {
+  it('puts each partner on the side of their own family, without crossing lines', () => {
+    const t = inLawTree();
+    const layout = computeLayout(t);
+    expect(countCrossings(t, layout)).toBe(0);
+    assertNoOverlap(layout);
+    const x = (name: string) =>
+      layout.persons.get(Object.values(t.persons).find((p) => `${p.lastName} ${p.firstName}` === name)!.id)!.x;
+    // Éva's parents and Éva are on the same side of the Kovács line.
+    expect(Math.sign(x('Tóth Éva') - x('Kovács István'))).toBe(Math.sign(x('Tóth Sándor') - x('Kovács János')));
+    expect(Math.sign(x('Nagy Péter') - x('Kovács Katalin'))).toBe(Math.sign(x('Nagy Lajos') - x('Kovács János')));
+  });
+
+  it('keeps crossings rare in a large tree with many in-law families', () => {
+    const t = generateTree(2000, 7, 0.3);
+    const layout = computeLayout(t);
+    const edges = Object.values(t.unions).reduce((n, u) => n + u.children.length, 0);
+    expect(countCrossings(t, layout)).toBeLessThan(edges * 0.05);
+    assertNoOverlap(layout);
   });
 });

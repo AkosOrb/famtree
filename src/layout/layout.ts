@@ -64,13 +64,15 @@ interface Block {
 }
 
 const STEP = NODE_W + PARTNER_GAP;
+/** How much more a person's siblings than their parents decide which side of a couple they stand on. */
+const SIBLING_PULL = 2;
 
 export function computeLayout(tree: FamilyTree, index: TreeIndex = buildIndex(tree)): Layout {
   const ids = Object.keys(tree.persons);
   const gen = assignGenerations(tree, index, ids);
   const { blocks, blockOf } = buildBlocks(tree, index, ids, gen);
   const layers = initialOrder(tree, index, ids, gen, blocks, blockOf);
-  reduceCrossings(tree, index, layers, blockOf);
+  bestOrdering(tree, index, layers, blockOf);
   assignX(tree, index, layers, blockOf);
   return buildGeometry(tree, layers);
 }
@@ -188,47 +190,255 @@ function initialOrder(
   return layers;
 }
 
-function parentBlocks(tree: FamilyTree, index: TreeIndex, block: Block, blockOf: Map<Id, Block>): Block[] {
-  const out: Block[] = [];
-  for (const m of block.members) {
-    const pu = index.parentUnion.get(m);
-    if (pu) for (const p of tree.unions[pu].partners) out.push(blockOf.get(p)!);
-  }
-  return out;
-}
-
-function childBlocks(tree: FamilyTree, index: TreeIndex, block: Block, blockOf: Map<Id, Block>): Block[] {
-  const out: Block[] = [];
-  for (const m of block.members) {
-    for (const uid of index.partnerUnions.get(m) ?? []) {
-      for (const c of tree.unions[uid].children) out.push(blockOf.get(c)!);
+/**
+ * Barycenter sweeps at person level: each person's position is its slot in the
+ * row, so a couple whose two members descend from different families can be
+ * judged member by member. Each sweep first turns every couple (or chain of
+ * partners) to face its members' own relatives, e.g. a wife married in next to
+ * her parents' side, then orders the blocks of the row by their barycenters.
+ */
+/**
+ * Runs the crossing reduction with and without the sibling pull and keeps the
+ * ordering with fewer crossing lines (the sibling pull wins ties, as it reads
+ * better: in-laws on the outside, their families next to them).
+ */
+function bestOrdering(tree: FamilyTree, index: TreeIndex, layers: Block[][], blockOf: Map<Id, Block>) {
+  const snapshot = () => ({
+    rows: layers.map((l) => [...l]),
+    members: new Map(layers.flat().map((b) => [b, [...b.members]])),
+  });
+  const restore = (s: ReturnType<typeof snapshot>) => {
+    s.rows.forEach((row, g) => (layers[g] = [...row]));
+    for (const [b, m] of s.members) b.members = [...m];
+  };
+  const initial = snapshot();
+  let best = initial;
+  let bestScore = Infinity;
+  for (const pull of [SIBLING_PULL, 0]) {
+    restore(initial);
+    reduceCrossings(tree, index, layers, blockOf, pull);
+    const score = countRowCrossings(tree, layers, blockOf);
+    if (score < bestScore) {
+      best = snapshot();
+      bestScore = score;
     }
   }
-  return out;
+  restore(best);
 }
 
-function reduceCrossings(tree: FamilyTree, index: TreeIndex, layers: Block[][], blockOf: Map<Id, Block>) {
-  const pos = new Map<Block, number>();
-  const record = () => layers.forEach((layer) => layer.forEach((b, i) => pos.set(b, i)));
-  record();
-  const sweep = (g: number, neighbours: (b: Block) => Block[], neighbourGen: number) => {
+/** Crossings of parent→child lines in the current row order, in O(E log E) per pair of rows. */
+function countRowCrossings(tree: FamilyTree, layers: Block[][], blockOf: Map<Id, Block>): number {
+  const slot = new Map<Id, number>();
+  for (const layer of layers) {
+    let i = 0;
+    for (const b of layer) for (const m of b.members) slot.set(m, i++);
+  }
+  const edgesByRow = new Map<number, [number, number][]>();
+  for (const u of Object.values(tree.unions)) {
+    if (!u.children.length) continue;
+    const upper = u.partners.reduce((sum, p) => sum + slot.get(p)!, 0) / u.partners.length;
+    const gen = blockOf.get(u.partners[0])!.gen;
+    for (const c of u.children) {
+      if (blockOf.get(c)!.gen !== gen + 1) continue;
+      const row = edgesByRow.get(gen) ?? [];
+      row.push([upper, slot.get(c)!]);
+      edgesByRow.set(gen, row);
+    }
+  }
+  let total = 0;
+  for (const edges of edgesByRow.values()) {
+    edges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    total += inversions(edges.map((e) => e[1]));
+  }
+  return total;
+}
+
+function inversions(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const mid = xs.length >> 1;
+  const left = xs.slice(0, mid);
+  const right = xs.slice(mid);
+  let count = inversions(left) + inversions(right);
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] <= right[j]) xs[k++] = left[i++];
+    else {
+      xs[k++] = right[j++];
+      count += left.length - i;
+    }
+  }
+  while (i < left.length) xs[k++] = left[i++];
+  while (j < right.length) xs[k++] = right[j++];
+  return count;
+}
+
+function reduceCrossings(
+  tree: FamilyTree,
+  index: TreeIndex,
+  layers: Block[][],
+  blockOf: Map<Id, Block>,
+  siblingPull: number,
+) {
+  const slot = new Map<Id, number>();
+  const blockPos = new Map<Block, number>();
+  const record = (layer: Block[]) => {
+    let i = 0;
+    layer.forEach((b, bi) => {
+      blockPos.set(b, bi);
+      for (const m of b.members) slot.set(m, i++);
+    });
+  };
+  layers.forEach(record);
+
+  const parentsIn = (m: Id, gen: number) => {
+    const pu = index.parentUnion.get(m);
+    return pu ? tree.unions[pu].partners.filter((p) => blockOf.get(p)!.gen === gen) : [];
+  };
+  const childrenIn = (m: Id, gen: number) => {
+    const out: Id[] = [];
+    for (const uid of index.partnerUnions.get(m) ?? []) {
+      for (const c of tree.unions[uid].children) if (blockOf.get(c)!.gen === gen) out.push(c);
+    }
+    return out;
+  };
+
+  const sweep = (g: number, neighbours: (m: Id) => Id[]) => {
     const layer = layers[g];
+    const bary = new Map<Id, number>();
+    for (const b of layer) {
+      for (const m of b.members) {
+        const ns = neighbours(m);
+        if (ns.length) bary.set(m, ns.reduce((sum, n) => sum + slot.get(n)!, 0) / ns.length);
+      }
+    }
+    // Turn partner chains towards their relatives (reversal keeps partners adjacent):
+    // each member is pulled towards its neighbours in the swept row and, more
+    // strongly, towards its own siblings, so people who married in end up on the
+    // outer side of the sibling group, where their own family can sit above them.
+    for (const b of layer) {
+      if (b.members.length < 2) continue;
+      const base = slot.get(b.members[0])!;
+      const siblingTarget = new Map<Id, number>();
+      for (const m of b.members) {
+        const pu = index.parentUnion.get(m);
+        const sibs = pu
+          ? tree.unions[pu].children.filter((c) => blockOf.get(c) !== b && blockOf.get(c)!.gen === g)
+          : [];
+        if (sibs.length) siblingTarget.set(m, sibs.reduce((sum, c) => sum + slot.get(c)!, 0) / sibs.length);
+      }
+      const cost = (order: Id[]) =>
+        order.reduce((c, m, i) => {
+          const pos = base + i;
+          if (bary.has(m)) c += Math.abs(pos - bary.get(m)!);
+          if (siblingTarget.has(m)) c += siblingPull * Math.abs(pos - siblingTarget.get(m)!);
+          return c;
+        }, 0);
+      const reversed = [...b.members].reverse();
+      if (cost(reversed) < cost(b.members)) b.members = reversed;
+    }
     let carry = -1;
     const keys = new Map<Block, number>();
     for (const b of layer) {
-      const ns = neighbours(b).filter((n) => n.gen === neighbourGen);
-      if (ns.length) carry = ns.reduce((s, n) => s + pos.get(n)!, 0) / ns.length;
+      const known = b.members.filter((m) => bary.has(m));
+      if (known.length) carry = known.reduce((sum, m) => sum + bary.get(m)!, 0) / known.length;
       // Blocks without neighbours stick to the block before them.
       keys.set(b, carry);
     }
-    layer.sort((a, b) => keys.get(a)! - keys.get(b)! || pos.get(a)! - pos.get(b)!);
-    layer.forEach((b, i) => pos.set(b, i));
+    layer.sort((a, b) => keys.get(a)! - keys.get(b)! || blockPos.get(a)! - blockPos.get(b)!);
+    record(layer);
   };
-  for (let iter = 0; iter < 4; iter++) {
-    for (let g = 1; g < layers.length; g++) sweep(g, (b) => parentBlocks(tree, index, b, blockOf), g - 1);
-    for (let g = layers.length - 2; g >= 0; g--) sweep(g, (b) => childBlocks(tree, index, b, blockOf), g + 1);
+
+  const down = () => {
+    for (let g = 1; g < layers.length; g++) sweep(g, (m) => parentsIn(m, g - 1));
+  };
+  const up = () => {
+    for (let g = layers.length - 2; g >= 0; g--) sweep(g, (m) => childrenIn(m, g + 1));
+  };
+  for (let iter = 0; iter < 6; iter++) {
+    down();
+    up();
   }
-  for (let g = 1; g < layers.length; g++) sweep(g, (b) => parentBlocks(tree, index, b, blockOf), g - 1);
+  down();
+
+  // Local refinement: swap neighbouring blocks, or turn a partner chain around,
+  // whenever that removes crossings. Only the edges of the two blocks involved
+  // can change their crossings, so each test is cheap and a pass stays O(edges).
+  interface Edge {
+    up: boolean; // to the generation above, else below
+    self: number; // position in this row
+    other: number; // position in the neighbouring row
+  }
+  const unionPos = (uid: Id) => {
+    const ps = tree.unions[uid].partners;
+    return ps.reduce((sum, p) => sum + slot.get(p)!, 0) / ps.length;
+  };
+  const edgesOf = (b: Block, selfOf: (m: Id) => number): Edge[] => {
+    const out: Edge[] = [];
+    const seen = new Set<Id>();
+    for (const m of b.members) {
+      const pu = index.parentUnion.get(m);
+      if (pu && blockOf.get(tree.unions[pu].partners[0])!.gen === b.gen - 1) {
+        out.push({ up: true, self: selfOf(m), other: unionPos(pu) });
+      }
+      for (const uid of index.partnerUnions.get(m) ?? []) {
+        if (seen.has(uid)) continue;
+        seen.add(uid);
+        const ps = tree.unions[uid].partners;
+        const self = ps.reduce((sum, p) => sum + selfOf(p), 0) / ps.length;
+        for (const c of tree.unions[uid].children) {
+          if (blockOf.get(c)!.gen === b.gen + 1) out.push({ up: false, self, other: slot.get(c)! });
+        }
+      }
+    }
+    return out;
+  };
+  /** Crossings among one set of edges, given their positions. */
+  const internalCrossings = (edges: Edge[]) => {
+    let n = 0;
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        const a = edges[i];
+        const b = edges[j];
+        if (a.up === b.up && (a.self - b.self) * (a.other - b.other) < 0) n++;
+      }
+    }
+    return n;
+  };
+  /** Crossings between edges of a block on the left and a block on the right. */
+  const between = (left: Edge[], right: Edge[]) => {
+    let n = 0;
+    for (const a of left) for (const b of right) if (a.up === b.up && a.other > b.other) n++;
+    return n;
+  };
+
+  for (let pass = 0; pass < 4; pass++) {
+    let improved = false;
+    for (const layer of layers) {
+      for (const b of layer) {
+        if (b.members.length < 2) continue;
+        const reversed = [...b.members].reverse();
+        const local = (order: Id[]) => (m: Id) => order.indexOf(m);
+        if (internalCrossings(edgesOf(b, local(reversed))) < internalCrossings(edgesOf(b, local(b.members)))) {
+          b.members = reversed;
+          improved = true;
+        }
+      }
+      record(layer);
+      for (let i = 0; i + 1 < layer.length; i++) {
+        const own = (m: Id) => slot.get(m)!;
+        const a = edgesOf(layer[i], own);
+        const b = edgesOf(layer[i + 1], own);
+        if (between(b, a) < between(a, b)) {
+          [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
+          record(layer);
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
 }
 
 const memberCenter = (block: Block, id: Id) => block.x + block.members.indexOf(id) * STEP + NODE_W / 2;
