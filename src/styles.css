@@ -14,7 +14,12 @@
   --unknown: #9b978c;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
   color-scheme: light;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   color: var(--text);
   background: var(--bg);
 }
@@ -402,6 +407,40 @@ label > textarea {
   border-left: 4px solid var(--g);
   padding: 4px 10px;
   font-size: 13px;
+}
+
+.relative-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relative-rows li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.relative-rows .chip {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relative-rows select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.remove-relation {
+  flex: none;
 }
 
 .button-row,
