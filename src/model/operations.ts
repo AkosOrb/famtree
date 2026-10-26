@@ -131,12 +131,7 @@ export function linkParent(tree: FamilyTree, child: Id, parent: Id): FamilyTree 
   return withUnion(tree, { ...u, partners: [...u.partners, parent] });
 }
 
-export function addChild(
-  tree: FamilyTree,
-  parent: Id,
-  input: PersonInput,
-  coParent?: Id,
-): [FamilyTree, Id] {
+export function addChild(tree: FamilyTree, parent: Id, input: PersonInput, coParent?: Id): [FamilyTree, Id] {
   const [t, id] = addPerson(tree, input);
   return [linkChild(t, parent, id, coParent), id];
 }
@@ -154,4 +149,78 @@ export function addParent(tree: FamilyTree, child: Id, input: PersonInput): [Fam
   }
   const [t, id] = addPerson(tree, input);
   return [linkParent(t, child, id), id];
+}
+
+function withoutUnion(tree: FamilyTree, id: Id): FamilyTree {
+  const unions = { ...tree.unions };
+  delete unions[id];
+  return { ...tree, unions };
+}
+
+/** Saves a union, or drops it if it no longer records any relationship. */
+function withUnionOrNone(tree: FamilyTree, union: Union): FamilyTree {
+  const empty = union.partners.length === 0 || (union.partners.length === 1 && union.children.length === 0);
+  return empty ? withoutUnion(tree, union.id) : withUnion(tree, union);
+}
+
+/** Places a child into the union of `parent` and `coParent`, or `parent`'s single-parent union. */
+function placeChild(tree: FamilyTree, parent: Id, child: Id, coParent?: Id): FamilyTree {
+  let unionId: Id | undefined;
+  if (coParent) [tree, unionId] = linkPartners(tree, parent, coParent);
+  else {
+    unionId = (buildIndex(tree).partnerUnions.get(parent) ?? []).find((u) => tree.unions[u].partners.length === 1);
+  }
+  if (!unionId) {
+    unionId = newId('u');
+    tree = withUnion(tree, { id: unionId, partners: [parent], children: [] });
+  }
+  const u = tree.unions[unionId];
+  return withUnion(tree, { ...u, children: [...u.children, child] });
+}
+
+/**
+ * Removes `parent` as a parent of `child`. The other parent, if any, stays the
+ * child's parent; the couple itself stays together.
+ */
+export function unlinkParent(tree: FamilyTree, child: Id, parent: Id): FamilyTree {
+  requirePerson(tree, child);
+  requirePerson(tree, parent);
+  const unionId = buildIndex(tree).parentUnion.get(child);
+  const u = unionId ? tree.unions[unionId] : undefined;
+  if (!u || !u.partners.includes(parent)) throw new TreeError('Ez a személy nem szülője a gyermeknek.');
+  tree = withUnionOrNone(tree, { ...u, children: u.children.filter((c) => c !== child) });
+  const other = u.partners.find((p) => p !== parent);
+  return other ? placeChild(tree, other, child) : tree;
+}
+
+/** Ends the partnership of two persons. Refused while they have children together. */
+export function unlinkPartners(tree: FamilyTree, a: Id, b: Id): FamilyTree {
+  requirePerson(tree, a);
+  requirePerson(tree, b);
+  const unionId = (buildIndex(tree).partnerUnions.get(a) ?? []).find((u) => tree.unions[u].partners.includes(b));
+  if (!unionId) throw new TreeError('Ők ketten nincsenek párként összekötve.');
+  if (tree.unions[unionId].children.length) {
+    throw new TreeError('Közös gyermekeik vannak. Előbb a gyermekeknél módosítsd a másik szülőt.');
+  }
+  return withoutUnion(tree, unionId);
+}
+
+/**
+ * Sets who the other parent of `parent`'s child is: one of `parent`'s partners,
+ * or nobody (undefined).
+ */
+export function setOtherParent(tree: FamilyTree, parent: Id, child: Id, coParent?: Id): FamilyTree {
+  requirePerson(tree, parent);
+  requirePerson(tree, child);
+  const unionId = buildIndex(tree).parentUnion.get(child);
+  const u = unionId ? tree.unions[unionId] : undefined;
+  if (!u || !u.partners.includes(parent)) throw new TreeError('Ez a személy nem szülője a gyermeknek.');
+  if (coParent === parent) throw new TreeError('Valaki nem lehet önmaga párja.');
+  if (coParent && (coParent === child || isAncestor(tree, buildIndex(tree), child, coParent))) {
+    throw new TreeError('A kapcsolat körkörös leszármazást hozna létre.');
+  }
+  const current = u.partners.find((p) => p !== parent);
+  if (current === coParent) return tree;
+  tree = withUnionOrNone(tree, { ...u, children: u.children.filter((c) => c !== child) });
+  return placeChild(tree, parent, child, coParent);
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { childrenOf, parentsOf, partnersOf, siblingsOf, type TreeIndex } from '../model/graph';
 import {
   addChild,
@@ -8,6 +8,9 @@ import {
   linkParent,
   linkPartners,
   removePerson,
+  setOtherParent,
+  unlinkParent,
+  unlinkPartners,
   updatePerson,
 } from '../model/operations';
 import { fullName, type FamilyTree, type Gender, type Id, type PersonInput } from '../model/types';
@@ -98,6 +101,22 @@ export function PersonPanel({
           deathYear: parseYear(draft.deathYear),
           notes: draft.notes.trim() || undefined,
         }),
+      (t) => t,
+    );
+  };
+
+  const otherParentOf = (child: Id) => parentsOf(tree, index, child).find((p) => p !== personId) ?? '';
+
+  const removeRelation = async (relation: Relation, other: Id) => {
+    const names = `${fullName(person)} és ${fullName(tree.persons[other])}`;
+    const what = relation === 'partner' ? 'párkapcsolatát' : 'szülő–gyermek kapcsolatát';
+    if (!(await askConfirm(`Eltávolítod ${names} ${what}? A személyek megmaradnak.`, 'Eltávolítás'))) return;
+    edit(
+      (t) => {
+        if (relation === 'parent') return unlinkParent(t, personId, other);
+        if (relation === 'child') return unlinkParent(t, other, personId);
+        return unlinkPartners(t, personId, other);
+      },
       (t) => t,
     );
   };
@@ -208,9 +227,51 @@ export function PersonPanel({
       )}
 
       <section className="relatives">
-        <RelativeList title="Szülők" ids={relatives.parents} tree={tree} onSelect={onSelect} />
-        <RelativeList title="Párok" ids={relatives.partners} tree={tree} onSelect={onSelect} />
-        <RelativeList title="Gyermekek" ids={relatives.children} tree={tree} onSelect={onSelect} />
+        <RelativeList
+          title="Szülők"
+          ids={relatives.parents}
+          tree={tree}
+          onSelect={onSelect}
+          onRemove={readOnly ? undefined : (id) => void removeRelation('parent', id)}
+        />
+        <RelativeList
+          title="Párok"
+          ids={relatives.partners}
+          tree={tree}
+          onSelect={onSelect}
+          onRemove={readOnly ? undefined : (id) => void removeRelation('partner', id)}
+        />
+        <RelativeList
+          title="Gyermekek"
+          ids={relatives.children}
+          tree={tree}
+          onSelect={onSelect}
+          onRemove={readOnly ? undefined : (id) => void removeRelation('child', id)}
+          extra={
+            readOnly || !relatives.partners.length
+              ? undefined
+              : (child) => (
+                  <select
+                    aria-label={`${fullName(tree.persons[child])} másik szülője`}
+                    title="Másik szülő"
+                    value={otherParentOf(child)}
+                    onChange={(e) =>
+                      edit(
+                        (t) => setOtherParent(t, personId, child, e.target.value || undefined),
+                        (t) => t,
+                      )
+                    }
+                  >
+                    <option value="">Másik szülő: nincs</option>
+                    {relatives.partners.map((p) => (
+                      <option key={p} value={p}>
+                        Másik szülő: {fullName(tree.persons[p])}
+                      </option>
+                    ))}
+                  </select>
+                )
+          }
+        />
         <RelativeList title="Testvérek" ids={relatives.siblings} tree={tree} onSelect={onSelect} />
       </section>
 
@@ -280,23 +341,46 @@ function RelativeList({
   ids,
   tree,
   onSelect,
+  onRemove,
+  extra,
 }: {
   title: string;
   ids: Id[];
   tree: FamilyTree;
   onSelect: (id: Id) => void;
+  /** Shown as a remove button next to each relative when the tree is editable. */
+  onRemove?: (id: Id) => void;
+  extra?: (id: Id) => ReactNode;
 }) {
   if (!ids.length) return null;
+  const chip = (id: Id) => (
+    <button key={id} className={`chip gender-${tree.persons[id].gender}`} onClick={() => onSelect(id)}>
+      {fullName(tree.persons[id])}
+    </button>
+  );
   return (
     <div className="relative-list">
       <h3>{title}</h3>
-      <div className="chips">
-        {ids.map((id) => (
-          <button key={id} className={`chip gender-${tree.persons[id].gender}`} onClick={() => onSelect(id)}>
-            {fullName(tree.persons[id])}
-          </button>
-        ))}
-      </div>
+      {onRemove ? (
+        <ul className="relative-rows">
+          {ids.map((id) => (
+            <li key={id}>
+              {chip(id)}
+              {extra?.(id)}
+              <button
+                className="icon remove-relation"
+                onClick={() => onRemove(id)}
+                aria-label={`Kapcsolat eltávolítása: ${fullName(tree.persons[id])}`}
+                title="Kapcsolat eltávolítása"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="chips">{ids.map(chip)}</div>
+      )}
     </div>
   );
 }
