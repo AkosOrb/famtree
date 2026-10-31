@@ -48,29 +48,39 @@ export interface Layout3D {
 
 /** Below this radius a tree is not wrapped into a full circle. */
 export const MIN_RADIUS = 1200;
-/** Vertical stretch of the generations, so the stepped tower rises steeply. */
+/**
+ * Vertical stretch of the generations, so the stepped tower rises steeply. Only the room
+ * between the rows is stretched: the cards keep their size, so the lines still meet them.
+ */
 export const Y_SCALE = 2.2;
 /** Room between the outermost layer of one generation's cylinder and the innermost of the next. */
-const GEN_GAP = 200;
+const GEN_GAP = 90;
 /** Distance between two depth layers. */
-export const LAYER_GAP = 170;
+export const LAYER_GAP = 120;
+/** Share of the room between two rows that the lines run straight down before they fan out. */
+const STEM = 0.2;
 /** Share of the circumference left empty, so the two ends of a wide tree do not touch. */
 const WRAP_GAP = 0.08;
 /** Longest straight piece of a horizontal line before it is bent to follow the curve. */
 const SEGMENT = 60;
-/** Room kept between the lines of two families in the same layer. */
-const LINE_GAP = 24;
 
-interface Span {
-  from: number;
-  to: number;
+/** A family's lines down to its children: from the family point `x` to each child's `kids` x. */
+interface Fan {
+  x: number;
+  lo: number;
+  hi: number;
 }
 
+/** Whether the lines of two families in the same generation gap cross (one reaches past the other). */
+const fansCross = (a: Fan, b: Fan) => (a.x < b.x ? a.hi > b.lo : a.x > b.x ? a.lo < b.hi : a.lo < b.hi && b.lo < a.hi);
+
 /**
- * Gives every family (union) a depth layer. A family stays in the layer of its
- * own branch while its lines have room there; when its sibling line would run
- * into another family's line in the same generation gap, it moves to the
- * nearest layer with room, further in or further out. Children stand in their
+ * Gives every family (union) a depth layer. The lines from a family run
+ * straight from the parents to each child, so in a plain line of descent they
+ * never cross. A family stays in the layer of its own branch while its lines
+ * cross no other family's there; when they would (a child who married in, far
+ * from their own parents), it moves to the nearest layer where they do not,
+ * further in or further out. Children stand in their
  * parents' family layer, so a branch keeps its depth down the generations,
  * until they start a family of their own: a couple always shares one layer.
  */
@@ -84,8 +94,8 @@ export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions
     return gens.length ? Math.min(...gens) : 0;
   };
   const unions = [...layout.unions].sort((a, b) => genOf(a) - genOf(b) || a.x - b.x);
-  /** Occupied line spans per generation gap and layer. */
-  const used = new Map<number, Map<number, Span[]>>();
+  /** Families already placed, per generation gap and layer. */
+  const used = new Map<number, Map<number, Fan[]>>();
 
   for (const u of unions) {
     const partners = u.partners.filter((id) => layout.persons.has(id));
@@ -95,35 +105,25 @@ export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions
 
     let layer = preferred;
     if (kids.length) {
-      const xs = [u.x, ...kids.map((k) => k.x)];
-      const span = { from: Math.min(...xs) - LINE_GAP / 2, to: Math.max(...xs) + LINE_GAP / 2 };
-      const gap = used.get(genOf(u)) ?? new Map<number, Span[]>();
+      const xs = kids.map((k) => k.x);
+      const fan = { x: u.x, lo: Math.min(...xs), hi: Math.max(...xs) };
+      const gap = used.get(genOf(u)) ?? new Map<number, Fan[]>();
       used.set(genOf(u), gap);
-      /** Distance to the nearest line already in `l`; negative when they overlap. */
-      const room = (l: number) => {
-        let best = Infinity;
-        for (const s of gap.get(l) ?? []) best = Math.min(best, Math.max(s.from - span.to, span.from - s.to));
-        return best;
-      };
-      if (room(layer) < 0) {
+      const free = (l: number) => !(gap.get(l) ?? []).some((f) => fansCross(f, fan));
+      if (!free(layer)) {
         for (let k = 1; ; k++) {
-          const out = room(preferred + k);
-          const inn = room(preferred - k);
-          if (out < 0 && inn < 0) continue;
-          // Toward the base layer if only one side has room or both do, so depth does not pile up
-          // over the generations; between equally deep sides, where there is more room.
-          const candidates = [
-            { l: preferred + k, room: out },
-            { l: preferred - k, room: inn },
-          ].filter((c) => c.room >= 0);
-          candidates.sort((a, b) => Math.abs(a.l) - Math.abs(b.l) || b.room - a.room);
-          layer = candidates[0].l;
+          // Toward the base layer if only one side is free or both are, so depth does not pile
+          // up over the generations; between equally deep sides, the emptier one.
+          const candidates = [preferred + k, preferred - k].filter(free);
+          if (!candidates.length) continue;
+          candidates.sort((a, b) => Math.abs(a) - Math.abs(b) || (gap.get(a)?.length ?? 0) - (gap.get(b)?.length ?? 0));
+          layer = candidates[0];
           break;
         }
       }
-      const spans = gap.get(layer) ?? [];
-      spans.push(span);
-      gap.set(layer, spans);
+      const fans = gap.get(layer) ?? [];
+      fans.push(fan);
+      gap.set(layer, fans);
     }
     unionLayer.set(u.id, layer);
     // Both partners stand in their family's layer, so a couple is never split.
@@ -141,7 +141,9 @@ export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions
 export function computeLayout3D(layout: Layout): Layout3D {
   const { bounds } = layout;
   const width = bounds.maxX - bounds.minX + NODE_W;
-  const height = (bounds.maxY - bounds.minY + NODE_H) * Y_SCALE;
+  const rows = Math.round((bounds.maxY - bounds.minY - NODE_H) / ROW_H) + 1;
+  const rowStep = ROW_H * Y_SCALE;
+  const height = (rows - 1) * rowStep + NODE_H;
   const layers = assignLayers(layout);
   const minLayer = Math.min(0, ...layers.unions.values(), ...layers.persons.values());
   const maxLayer = Math.max(0, ...layers.unions.values(), ...layers.persons.values());
@@ -160,12 +162,20 @@ export function computeLayout3D(layout: Layout): Layout3D {
   const radiusOf = (layer: number, gen: number) => radius + gen * genStep + layer * LAYER_GAP;
   const maxGen = Math.max(0, ...[...layout.persons.values()].map((p) => p.gen));
   const midX = (bounds.minX + bounds.maxX) / 2;
-  const midY = (bounds.minY + bounds.maxY + NODE_H) / 2;
+  const top = height / 2;
+  /** Stretch for the room between two rows, so that a row and its gap add up to `rowStep`. */
+  const gapStretch = (rowStep - NODE_H) / (ROW_H - NODE_H);
+  /** Height in 3D of a 2D y: within a card's row unchanged, so lines meet the cards; between rows stretched. */
+  const heightOf = (y: number) => {
+    const row = Math.floor((y - bounds.minY) / ROW_H);
+    const d = y - bounds.minY - row * ROW_H;
+    return top - row * rowStep - (d <= NODE_H ? d : NODE_H + (d - NODE_H) * gapStretch);
+  };
 
   const angleOf = (x: number) => (x - midX) / radius;
   const at = (x: number, y: number, r: number): Point3 => {
     const a = angleOf(x);
-    return { x: r * Math.sin(a), y: (midY - y) * Y_SCALE, z: r * Math.cos(a) };
+    return { x: r * Math.sin(a), y: heightOf(y), z: r * Math.cos(a) };
   };
 
   const persons = new Map<Id, Person3D>();
@@ -177,22 +187,23 @@ export function computeLayout3D(layout: Layout): Layout3D {
 
   type Out = number[];
   const push = (out: Out, a: Point3, b: Point3) => out.push(a.x, a.y, a.z, b.x, b.y, b.z);
-  /** A line along the curve from x1 to x2, moving from depth r1 to r2 on the way. */
-  const horizontal = (out: Out, x1: number, x2: number, y: number, r1: number, r2 = r1) => {
+  /** A line from (x1, y1) to (x2, y2) that follows the curve, moving from depth r1 to r2 on the way. */
+  const along = (out: Out, x1: number, y1: number, r1: number, x2: number, y2: number, r2: number) => {
     const n = Math.max(1, Math.ceil(Math.abs(x2 - x1) / SEGMENT));
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n;
-      const t1 = (i + 1) / n;
-      push(out, at(x1 + (x2 - x1) * t0, y, r1 + (r2 - r1) * t0), at(x1 + (x2 - x1) * t1, y, r1 + (r2 - r1) * t1));
-    }
+    const pt = (t: number) => at(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, r1 + (r2 - r1) * t);
+    for (let i = 0; i < n; i++) push(out, pt(i / n), pt((i + 1) / n));
   };
+  const horizontal = (out: Out, x1: number, x2: number, y: number, r1: number, r2 = r1) =>
+    along(out, x1, y, r1, x2, y, r2);
   const rp = (id: Id) => radiusOf(layers.persons.get(id) ?? 0, layout.persons.get(id)?.gen ?? 0);
   const genOfUnion = (u: UnionGeometry) => {
     const gens = u.partners.map((id) => layout.persons.get(id)?.gen).filter((g) => g != null);
     return gens.length ? Math.min(...gens) : 0;
   };
-  /** The family's radius on the parents' cylinder (`at` 0) or at its sibling line (`at` 0.5). */
-  const ruOf = (u: UnionGeometry, step = 0) => radiusOf(layers.unions.get(u.id) ?? 0, genOfUnion(u) + step);
+  /** The family's radius on the parents' cylinder, or on generation `gen`'s. */
+  const ruOf = (u: UnionGeometry, gen = genOfUnion(u)) => radiusOf(layers.unions.get(u.id) ?? 0, gen);
+  /** Where the family's lines stop running straight down below the parents and fan out. */
+  const fanY = (u: UnionGeometry) => bounds.minY + genOfUnion(u) * ROW_H + NODE_H + STEM * (ROW_H - NODE_H);
 
   /** From a partner's card to the family point (the start of the line down to the children). */
   const partnerToFamily = (out: Out, u: UnionGeometry, partner: PersonBox) => {
@@ -205,14 +216,19 @@ export function computeLayout3D(layout: Layout): Layout3D {
     const edge = partner.x < u.x ? partner.x + NODE_W / 2 : partner.x - NODE_W / 2;
     horizontal(out, edge, u.x, partner.y + NODE_H / 2, rp(partner.id), ru);
   };
-  /** From the family point down to one child. */
-  const familyToChild = (out: Out, u: UnionGeometry, child: PersonBox) => {
-    const rb = ruOf(u, 0.5);
-    // Down from the parents' cylinder to the sibling line, half a step wider.
-    push(out, at(u.x, u.y, ruOf(u)), at(u.x, u.barY, rb));
-    horizontal(out, u.x, child.x, u.barY, rb);
-    // On to the child's cylinder (and the child's own family layer, if they have moved).
-    push(out, at(child.x, u.barY, rb), at(child.x, child.y, rp(child.id)));
+  /**
+   * From the family point down to one child: straight down from between the parents, then
+   * straight across to just above the child, then down onto the child's card. Every family's
+   * lines turn at the same heights, so two families' lines only cross where one reaches past
+   * the other, and those families stand in different layers.
+   */
+  const stem = (out: Out, u: UnionGeometry) => push(out, at(u.x, u.y, ruOf(u)), at(u.x, fanY(u), ruOf(u)));
+  const toChild = (out: Out, u: UnionGeometry, child: PersonBox) => {
+    const above = child.y - STEM * (ROW_H - NODE_H);
+    const r = ruOf(u, child.gen);
+    along(out, u.x, fanY(u), ruOf(u), child.x, above, r);
+    // Onto the child's card (in the child's own family layer, if they have moved).
+    push(out, at(child.x, above, r), at(child.x, child.y, rp(child.id)));
   };
 
   const out: Out = [];
@@ -222,11 +238,8 @@ export function computeLayout3D(layout: Layout): Layout3D {
     // Partners share the family's layer; only someone with a second family can stand elsewhere.
     for (const p of partners) partnerToFamily(out, u, p);
     if (!kids.length) continue;
-    const rb = ruOf(u, 0.5);
-    const xs = [u.x, ...kids.map((k) => k.x)];
-    push(out, at(u.x, u.y, ruOf(u)), at(u.x, u.barY, rb));
-    horizontal(out, Math.min(...xs), Math.max(...xs), u.barY, rb);
-    for (const k of kids) push(out, at(k.x, u.barY, rb), at(k.x, k.y, rp(k.id)));
+    stem(out, u);
+    for (const k of kids) toChild(out, u, k);
   }
 
   const link = (from: Id, to: Id, relation: Relation): number[] => {
@@ -243,7 +256,8 @@ export function computeLayout3D(layout: Layout): Layout3D {
       const c = layout.persons.get(child);
       if (!p || !c) return res;
       partnerToFamily(res, u, p);
-      familyToChild(res, u, c);
+      stem(res, u);
+      toChild(res, u, c);
       return res;
     }
     return res;
@@ -259,7 +273,7 @@ export function computeLayout3D(layout: Layout): Layout3D {
     genStep,
     outerRadius: radiusOf(maxLayer, maxGen),
     shellRadius: (y: number) =>
-      radiusOf(maxLayer, Math.min(maxGen, Math.max(0, Math.round((midY - y / Y_SCALE - NODE_H / 2) / ROW_H)))),
+      radiusOf(maxLayer, Math.min(maxGen, Math.max(0, Math.round((top - NODE_H / 2 - y) / rowStep)))),
     height,
     wrapped: maxAngle > Math.PI / 2,
   };
