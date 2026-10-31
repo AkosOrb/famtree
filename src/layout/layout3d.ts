@@ -1,4 +1,5 @@
-import { NODE_H, NODE_W, type Layout, type UnionGeometry } from './layout';
+import { NODE_H, NODE_W, type Layout, type PersonBox, type UnionGeometry } from './layout';
+import type { Relation } from '../model/relationship';
 import type { Id } from '../model/types';
 
 /**
@@ -34,6 +35,11 @@ export interface Layout3D {
   height: number;
   /** True when the tree reaches round to the back of the cylinder. */
   wrapped: boolean;
+  /**
+   * The tree lines between two related people, as pairs of points like `edges`:
+   * `relation` is what `to` is to `from`. Empty when they are not directly linked.
+   */
+  link: (from: Id, to: Id, relation: Relation) => number[];
 }
 
 /** Below this radius a tree is not wrapped into a full circle. */
@@ -153,44 +159,80 @@ export function computeLayout3D(layout: Layout): Layout3D {
     persons.set(p.id, { ...c, id: p.id, angle: angleOf(p.x), gen: p.gen, layer });
   }
 
-  const out: number[] = [];
-  const push = (a: Point3, b: Point3) => out.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  type Out = number[];
+  const push = (out: Out, a: Point3, b: Point3) => out.push(a.x, a.y, a.z, b.x, b.y, b.z);
   /** A line along the curve from x1 to x2, moving from depth r1 to r2 on the way. */
-  const horizontal = (x1: number, x2: number, y: number, r1: number, r2 = r1) => {
+  const horizontal = (out: Out, x1: number, x2: number, y: number, r1: number, r2 = r1) => {
     const n = Math.max(1, Math.ceil(Math.abs(x2 - x1) / SEGMENT));
     for (let i = 0; i < n; i++) {
       const t0 = i / n;
       const t1 = (i + 1) / n;
-      push(at(x1 + (x2 - x1) * t0, y, r1 + (r2 - r1) * t0), at(x1 + (x2 - x1) * t1, y, r1 + (r2 - r1) * t1));
+      push(out, at(x1 + (x2 - x1) * t0, y, r1 + (r2 - r1) * t0), at(x1 + (x2 - x1) * t1, y, r1 + (r2 - r1) * t1));
     }
   };
   const rp = (id: Id) => radiusOf(layers.persons.get(id) ?? 0);
+  const ruOf = (u: UnionGeometry) => radiusOf(layers.unions.get(u.id) ?? 0);
 
+  /** From a partner's card to the family point (the start of the line down to the children). */
+  const partnerToFamily = (out: Out, u: UnionGeometry, partner: PersonBox) => {
+    const ru = ruOf(u);
+    const others = u.partners.filter((id) => id !== partner.id && layout.persons.has(id));
+    if (!others.length) {
+      if (rp(partner.id) !== ru) push(out, at(u.x, u.y, rp(partner.id)), at(u.x, u.y, ru));
+      return;
+    }
+    const edge = partner.x < u.x ? partner.x + NODE_W / 2 : partner.x - NODE_W / 2;
+    horizontal(out, edge, u.x, partner.y + NODE_H / 2, rp(partner.id), ru);
+  };
+  /** From the family point down to one child. */
+  const familyToChild = (out: Out, u: UnionGeometry, child: PersonBox) => {
+    const ru = ruOf(u);
+    push(out, at(u.x, u.y, ru), at(u.x, u.barY, ru));
+    horizontal(out, u.x, child.x, u.barY, ru);
+    // A child who has moved to their own family's layer is reached by a slanted line.
+    push(out, at(child.x, u.barY, ru), at(child.x, child.y, rp(child.id)));
+  };
+
+  const out: Out = [];
   for (const u of layout.unions) {
-    const ru = radiusOf(layers.unions.get(u.id) ?? 0);
+    const ru = ruOf(u);
     const partners = u.partners.map((id) => layout.persons.get(id)).filter((p) => !!p);
     const kids = u.children.map((id) => layout.persons.get(id)).filter((p) => !!p);
     // Partners share the family's layer; only someone with a second family can stand elsewhere.
-    if (partners.length === 2) {
-      const [a, b] = [...partners].sort((p, q) => p.x - q.x);
-      horizontal(a.x + NODE_W / 2, u.x, a.y + NODE_H / 2, rp(a.id), ru);
-      horizontal(u.x, b.x - NODE_W / 2, b.y + NODE_H / 2, ru, rp(b.id));
-    } else if (partners.length === 1 && rp(partners[0].id) !== ru) {
-      push(at(u.x, u.y, rp(partners[0].id)), at(u.x, u.y, ru));
-    }
+    for (const p of partners) partnerToFamily(out, u, p);
     if (!kids.length) continue;
     const xs = [u.x, ...kids.map((k) => k.x)];
-    push(at(u.x, u.y, ru), at(u.x, u.barY, ru));
-    horizontal(Math.min(...xs), Math.max(...xs), u.barY, ru);
-    // A child who has moved to their own family's layer is reached by a slanted line.
-    for (const k of kids) push(at(k.x, u.barY, ru), at(k.x, k.y, rp(k.id)));
+    push(out, at(u.x, u.y, ru), at(u.x, u.barY, ru));
+    horizontal(out, Math.min(...xs), Math.max(...xs), u.barY, ru);
+    for (const k of kids) push(out, at(k.x, u.barY, ru), at(k.x, k.y, rp(k.id)));
   }
+
+  const link = (from: Id, to: Id, relation: Relation): number[] => {
+    const res: Out = [];
+    const [parent, child] = relation === 'parent' ? [to, from] : [from, to];
+    for (const u of layout.unions) {
+      if (relation === 'partner') {
+        if (!u.partners.includes(from) || !u.partners.includes(to)) continue;
+        for (const id of [from, to]) partnerToFamily(res, u, layout.persons.get(id)!);
+        return res;
+      }
+      if (!u.partners.includes(parent) || !u.children.includes(child)) continue;
+      const p = layout.persons.get(parent);
+      const c = layout.persons.get(child);
+      if (!p || !c) return res;
+      partnerToFamily(res, u, p);
+      familyToChild(res, u, c);
+      return res;
+    }
+    return res;
+  };
 
   let maxAngle = 0;
   for (const p of persons.values()) maxAngle = Math.max(maxAngle, Math.abs(p.angle));
   return {
     persons,
     edges: new Float32Array(out),
+    link,
     radius,
     outerRadius: radiusOf(maxLayer),
     height,

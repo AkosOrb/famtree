@@ -3,7 +3,9 @@ import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zo
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Focus } from '../App';
 import { NODE_H, NODE_W, type Layout, type PersonBox, type UnionGeometry } from '../layout/layout';
+import { directLinks } from '../layout/links';
 import { SpatialGrid } from '../layout/spatialGrid';
+import { LinkLegend } from './LinkLegend';
 import type { PathStep } from '../model/relationship';
 import { fullName, type FamilyTree, type Id, type Person } from '../model/types';
 
@@ -165,6 +167,14 @@ export function TreeCanvas(props: Props) {
   const pathIds = useMemo(() => new Set(path?.map((s) => s.id)), [path]);
   const marked = path ? pathIds : highlight?.size ? highlight : null;
   const pathD = useMemo(() => (path ? pathGeometry(path, layout) : ''), [path, layout]);
+  const links = useMemo(() => (selectedId ? directLinks(layout, selectedId) : []), [layout, selectedId]);
+  // The selected person's connections, one path per kind, drawn along the tree's own lines.
+  const linkD = useMemo(() => {
+    const d = { parent: '', partner: '', child: '' };
+    for (const l of links) d[l.relation] += pathGeometry([{ id: selectedId!, relation: null }, l], layout);
+    return d;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [links, layout]);
 
   const grids = useMemo(() => {
     const persons = new SpatialGrid<PersonBox>();
@@ -201,6 +211,9 @@ export function TreeCanvas(props: Props) {
               <UnionEdges key={u.id} union={u} layout={layout} />
             ))}
           </g>
+          {(['parent', 'partner', 'child'] as const).map(
+            (r) => linkD[r] && <path key={r} d={linkD[r]} className={`link-edge link-${r}`} />,
+          )}
           {pathD && <path d={pathD} className="path-edge" />}
           <g className="nodes">
             {visiblePersons.map((box) => (
@@ -230,6 +243,7 @@ export function TreeCanvas(props: Props) {
           )}
         </div>
       )}
+      {selectedId && <LinkLegend links={links} />}
       <div className="status">
         {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható
         · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
