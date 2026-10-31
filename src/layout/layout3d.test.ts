@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateTree, inLawTree } from '../model/sample';
-import { computeLayout, NODE_W } from './layout';
+import { computeLayout, NODE_H, NODE_W } from './layout';
 import type { Id } from '../model/types';
 import { directLinks } from './links';
 import { assignLayers, computeLayout3D, LAYER_GAP, MIN_RADIUS } from './layout3d';
@@ -38,21 +38,26 @@ describe('3D layout', () => {
   it('moves families whose lines would cross into another layer, and keeps the rest together', () => {
     const layout = computeLayout(generateTree(2000, 1, 0.3));
     const { unions, persons } = assignLayers(layout);
-    const byGapLayer = new Map<string, [number, number][]>();
+    const byGapLayer = new Map<string, { x: number; lo: number; hi: number }[]>();
     for (const u of layout.unions) {
       const kids = u.children.map((id) => layout.persons.get(id)).filter((p) => !!p);
       if (!kids.length) continue;
-      const gen = layout.persons.get(u.partners[0])!.gen;
-      const xs = [u.x, ...kids.map((k) => k.x)];
+      const gen = Math.min(...u.partners.map((id) => layout.persons.get(id)?.gen ?? Infinity));
+      const xs = kids.map((k) => k.x);
       const key = `${gen}:${unions.get(u.id)}`;
-      byGapLayer.set(key, [...(byGapLayer.get(key) ?? []), [Math.min(...xs), Math.max(...xs)]]);
+      byGapLayer.set(key, [...(byGapLayer.get(key) ?? []), { x: u.x, lo: Math.min(...xs), hi: Math.max(...xs) }]);
       // Children stand in their family's layer until they have a family of their own.
       const asPartner = new Set(layout.unions.flatMap((v) => v.partners));
       for (const k of kids) if (!asPartner.has(k.id)) expect(persons.get(k.id)).toBe(unions.get(u.id));
     }
-    for (const spans of byGapLayer.values()) {
-      spans.sort((a, b) => a[0] - b[0]);
-      for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBeGreaterThan(spans[i - 1][1]);
+    // Within one layer, a family left of another has all its children left of the other's.
+    for (const fans of byGapLayer.values()) {
+      fans.sort((a, b) => a.x - b.x);
+      let reach = -Infinity;
+      for (const f of fans) {
+        expect(f.lo).toBeGreaterThanOrEqual(reach);
+        reach = Math.max(reach, f.hi);
+      }
     }
     const used = new Set(unions.values());
     expect(used.size).toBeGreaterThan(1);
@@ -61,6 +66,56 @@ describe('3D layout', () => {
     for (const l of persons.values()) count.set(l, (count.get(l) ?? 0) + 1);
     const fullest = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
     expect(fullest).toBe(0);
+  });
+
+  it('draws lines that meet the cards and never cross at the same depth', () => {
+    /** Crossings of the lines seen from the axis outward, and whether each is at the same depth. */
+    const crossings = (l3: ReturnType<typeof computeLayout3D>) => {
+      const e = l3.edges;
+      const segs: { a: number[]; b: number[] }[] = [];
+      for (let i = 0; i < e.length; i += 6) {
+        const p = (j: number) => [Math.atan2(e[j], e[j + 2]) * l3.radius, e[j + 1], Math.hypot(e[j], e[j + 2])];
+        segs.push({ a: p(i), b: p(i + 3) });
+      }
+      let touching = 0;
+      let behind = 0;
+      for (let i = 0; i < segs.length; i++) {
+        for (let j = i + 1; j < segs.length; j++) {
+          const [p, q] = [segs[i], segs[j]];
+          const d1 = [p.b[0] - p.a[0], p.b[1] - p.a[1]];
+          const d2 = [q.b[0] - q.a[0], q.b[1] - q.a[1]];
+          const den = d1[0] * d2[1] - d1[1] * d2[0];
+          if (Math.abs(den) < 1e-9) continue;
+          const w = [q.a[0] - p.a[0], q.a[1] - p.a[1]];
+          const t = (w[0] * d2[1] - w[1] * d2[0]) / den;
+          const u = (w[0] * d1[1] - w[1] * d1[0]) / den;
+          if (t <= 1e-3 || t >= 1 - 1e-3 || u <= 1e-3 || u >= 1 - 1e-3) continue;
+          const r1 = p.a[2] + (p.b[2] - p.a[2]) * t;
+          const r2 = q.a[2] + (q.b[2] - q.a[2]) * u;
+          if (Math.abs(r1 - r2) < LAYER_GAP / 2) touching++;
+          else behind++;
+        }
+      }
+      return { touching, behind };
+    };
+    // A plain line of descent has no crossings at all.
+    expect(crossings(computeLayout3D(computeLayout(generateTree(400, 2))))).toEqual({ touching: 0, behind: 0 });
+    // With in-laws, lines only pass in front of or behind each other, in different layers.
+    expect(crossings(computeLayout3D(computeLayout(generateTree(400, 2, 0.3)))).touching).toBe(0);
+
+    // Each child's line reaches the top edge of their card.
+    const layout = computeLayout(inLawTree());
+    const l3 = computeLayout3D(layout);
+    const kids = new Set(layout.unions.flatMap((u) => u.children));
+    for (const id of kids) {
+      const p = l3.persons.get(id)!;
+      let found = false;
+      for (let i = 0; i < l3.edges.length; i += 3) {
+        const [x, y, z] = [l3.edges[i], l3.edges[i + 1], l3.edges[i + 2]];
+        if (Math.hypot(x - p.x, z - p.z) < 1 && Math.abs(y - (p.y + NODE_H / 2)) < 1e-6) found = true;
+      }
+      expect(found).toBe(true);
+    }
   });
 
   it('never splits a couple between layers', () => {
