@@ -54,7 +54,8 @@ describe('layout with families that married in', () => {
     const t = generateTree(2000, 7, 0.3);
     const layout = computeLayout(t);
     const edges = Object.values(t.unions).reduce((n, u) => n + u.children.length, 0);
-    expect(countCrossings(t, layout)).toBeLessThan(edges * 0.05);
+    // Couples keep the wife on the left, which costs a few crossings where in-laws sit on the wrong side.
+    expect(countCrossings(t, layout)).toBeLessThan(edges * 0.06);
     expect(countIntrusions(t, layout)).toBeLessThan(edges * 0.1);
     assertNoOverlap(layout);
   });
@@ -76,9 +77,9 @@ describe('layout with families that married in', () => {
     [t] = addChild(t, find('Fekete Béla'), person('Fekete', 'Zoltán', 'male'), find('Fehér Erika'));
     const layout = computeLayout(t);
     expect(countIntrusions(t, layout)).toBe(0);
-    // Three families married into one sibling group: one crossing cannot be avoided,
-    // but the two families' sibling lines must not merge into one.
-    expect(countCrossings(t, layout)).toBeLessThanOrEqual(1);
+    // Three families married into one sibling group, and couples keep the wife on the left:
+    // a few crossings cannot be avoided, but the families' sibling lines must not merge into one.
+    expect(countCrossings(t, layout)).toBeLessThanOrEqual(3);
     assertNoOverlap(layout);
     const bars = layout.unions
       .filter((u) => u.children.length)
@@ -137,7 +138,41 @@ describe('layout with families that married in', () => {
     [t] = linkPartners(t, cousin, bride);
     child([cousin, bride], 'E', 'male');
     const layout = computeLayout(t);
-    expect(countCrossings(t, layout)).toBe(0);
+    // The bride stands left of the groom, so the two cousins' families meet with one crossing.
+    expect(countCrossings(t, layout)).toBeLessThanOrEqual(1);
     expect(countIntrusions(t, layout)).toBe(0);
+  });
+});
+
+describe('couples', () => {
+  it('stand wife on the left, husband on the right; several partners may stand on both sides', () => {
+    for (const t of [inLawTree(), generateTree(2000, 7, 0.3)]) {
+      const layout = computeLayout(t);
+      let checked = 0;
+      for (const u of Object.values(t.unions)) {
+        if (u.partners.length !== 2) continue;
+        const [a, b] = u.partners.map((id) => t.persons[id]);
+        const wife = a.gender === 'female' ? a : b;
+        const husband = wife === a ? b : a;
+        if (wife.gender !== 'female' || husband.gender !== 'male') continue;
+        const partnersOf = (id: string) => Object.values(t.unions).filter((v) => v.partners.includes(id)).length;
+        if (partnersOf(wife.id) > 1 || partnersOf(husband.id) > 1) continue;
+        expect(layout.persons.get(wife.id)!.x).toBeLessThan(layout.persons.get(husband.id)!.x);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(5);
+    }
+  });
+
+  it('puts the partners of someone with two families on both sides of them', () => {
+    let t = emptyTree();
+    let man: string, w1: string, w2: string;
+    [t, man] = addPerson(t, { lastName: 'X', firstName: 'Man', gender: 'male' });
+    [t, w1] = addPartner(t, man, { lastName: 'Y', firstName: 'First', gender: 'female' });
+    [t, w2] = addPartner(t, man, { lastName: 'Z', firstName: 'Second', gender: 'female' });
+    const layout = computeLayout(t);
+    const x = (id: string) => layout.persons.get(id)!.x;
+    expect(Math.min(x(w1), x(w2))).toBeLessThan(x(man));
+    expect(Math.max(x(w1), x(w2))).toBeGreaterThan(x(man));
   });
 });
