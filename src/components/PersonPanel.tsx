@@ -9,14 +9,16 @@ import {
   linkPartners,
   removePerson,
   setOtherParent,
+  storiesWith,
   unlinkParent,
   unlinkPartners,
   updatePerson,
 } from '../model/operations';
-import { fullName, type FamilyTree, type Gender, type Id, type PersonInput } from '../model/types';
+import { fullName, sortedStories, type FamilyTree, type Gender, type Id, type PersonInput } from '../model/types';
 import { photoFromFile } from '../model/photo';
 import { PersonPicker } from './PersonPicker';
 import { askConfirm } from './ConfirmDialog';
+import type { LineageMode } from '../model/subtree';
 
 export type EditFn = <T>(fn: (t: FamilyTree) => T, pick: (r: T) => FamilyTree) => T | undefined;
 
@@ -42,8 +44,10 @@ interface Props {
   personId: Id;
   edit: EditFn;
   onSelect: (id: Id) => void;
-  onFocusOn: (id: Id) => void;
+  onFocusOn: (id: Id, mode?: LineageMode) => void;
   onFindPath: (other: Id) => void;
+  /** Opens a family history card in the stories panel. */
+  onOpenStory: (storyId: Id) => void;
   onClose: () => void;
   readOnly?: boolean;
 }
@@ -56,9 +60,11 @@ export function PersonPanel({
   onSelect,
   onFocusOn,
   onFindPath,
+  onOpenStory,
   onClose,
   readOnly,
 }: Props) {
+  const stories = useMemo(() => sortedStories(storiesWith(tree, personId)), [tree, personId]);
   const [findingPath, setFindingPath] = useState(false);
   const person = tree.persons[personId];
   const [draft, setDraft] = useState(() => ({
@@ -307,7 +313,31 @@ export function PersonPanel({
         </section>
       )}
 
-      <button onClick={() => onFocusOn(personId)}>Nézet erre a személyre szűkítve</button>
+      {stories.length > 0 && (
+        <section className="relative-list">
+          <h3>Történetek</h3>
+          <ul className="story-links">
+            {stories.map((s) => (
+              <li key={s.id}>
+                <button onClick={() => onOpenStory(s.id)}>
+                  <span>{s.title}</span>
+                  {s.date && <small>{s.date}</small>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="relative-list">
+        <h3>Nézet erre a személyre szűkítve</h3>
+        <div className="button-row wrap">
+          <button onClick={() => onFocusOn(personId, 'around')}>Körülötte</button>
+          <button onClick={() => onFocusOn(personId, 'ancestors')}>Felmenői</button>
+          <button onClick={() => onFocusOn(personId, 'descendants')}>Utódai</button>
+          <button onClick={() => onFocusOn(personId, 'hourglass')}>Mindkettő</button>
+        </div>
+      </div>
 
       {findingPath ? (
         <div className="add-form">

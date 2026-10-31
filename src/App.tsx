@@ -3,6 +3,7 @@ import { PersonPanel } from './components/PersonPanel';
 import { AccountDialog } from './components/AccountDialog';
 import { ConfirmHost } from './components/ConfirmDialog';
 import { PathCard } from './components/PathCard';
+import { StoriesPanel } from './components/StoriesPanel';
 import { PrivacyDialog } from './components/PrivacyDialog';
 import { ShareDialog } from './components/ShareDialog';
 import { Toolbar } from './components/Toolbar';
@@ -12,10 +13,10 @@ import { buildIndex } from './model/graph';
 import { addPerson, TreeError } from './model/operations';
 import { inLawTree } from './model/sample';
 import { findPath } from './model/relationship';
-import { focusSubtree } from './model/subtree';
+import { lineageSubtree, type LineageMode } from './model/subtree';
 import { DEFAULT_PRIVACY, type PrivacySettings } from './model/privacy';
 import { localRepository } from './model/storage';
-import { emptyTree, type FamilyTree, type Id } from './model/types';
+import { emptyTree, storiesOf, type FamilyTree, type Id } from './model/types';
 import { api, sessionFromUrl, shareUrl, type Role, type ServerSession, type User } from './sync/api';
 import type { Change } from './sync/changes';
 import { useServerSync } from './sync/useServerSync';
@@ -26,7 +27,9 @@ export interface Focus {
   nonce: number;
 }
 
-/** 0 = whole tree; otherwise generations shown above and below the focus person. */
+/** 'all' = whole tree; otherwise the part around the view's root person (see model/subtree.ts). */
+export type ViewMode = 'all' | LineageMode;
+/** Generations shown from the root person; 0 = all generations. */
 export type ViewDepth = 0 | 2 | 3 | 5;
 
 interface RemoteTree {
@@ -70,15 +73,26 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   const [pathEnds, setPathEnds] = useState<{ from: Id; to: Id } | null>(null);
-  const [viewDepth, setViewDepth] = useState<ViewDepth>(0);
+  const [viewMode, setViewMode] = useState<ViewMode>('all');
+  const [viewDepth, setViewDepth] = useState<ViewDepth>(3);
   const [viewRoot, setViewRoot] = useState<Id | null>(null);
+  const [storiesOpen, setStoriesOpen] = useState(false);
+  const [activeStory, setActiveStory] = useState<Id | null>(null);
 
   const index = useMemo(() => buildIndex(tree), [tree]);
-  const focusRoot = viewDepth && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
+  const focusRoot = viewMode !== 'all' && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
   const view = useMemo(
-    () => (focusRoot ? focusSubtree(tree, index, focusRoot, viewDepth, viewDepth) : { tree, truncated: new Set<Id>() }),
-    [tree, index, focusRoot, viewDepth],
+    () =>
+      focusRoot && viewMode !== 'all'
+        ? lineageSubtree(tree, index, focusRoot, viewMode, viewDepth || Infinity)
+        : { tree, truncated: new Set<Id>() },
+    [tree, index, focusRoot, viewMode, viewDepth],
   );
+
+  const story = activeStory ? storiesOf(tree)[activeStory] : undefined;
+  // Keyed by the member list, so unrelated edits do not re-trigger zooming to the group.
+  const memberKey = story ? JSON.stringify(story.members.filter((m) => tree.persons[m])) : '';
+  const highlight = useMemo(() => (memberKey ? new Set<Id>(JSON.parse(memberKey)) : null), [memberKey]);
   const layout = useMemo(() => computeLayout(view.tree), [view.tree]);
 
   const activePath = pathEnds && tree.persons[pathEnds.from] && tree.persons[pathEnds.to] ? pathEnds : null;
@@ -90,8 +104,9 @@ export function App() {
 
   const showPath = (from: Id, to: Id) => {
     setPathEnds({ from, to });
+    setActiveStory(null);
     // The path may leave a focus view, so show the whole tree.
-    setViewDepth(0);
+    setViewMode('all');
   };
 
   // Local mode persists to this browser; server mode syncs with the backend.
@@ -208,20 +223,31 @@ export function App() {
     [focusRoot, view.tree],
   );
 
+  /** Narrows the view to `id`; keeps the current mode, or uses `mode` when given. */
   const focusOn = useCallback(
-    (id: Id) => {
+    (id: Id, mode?: LineageMode) => {
       setViewRoot(id);
-      if (!viewDepth) setViewDepth(3);
+      setViewMode((m) => mode ?? (m === 'all' ? 'around' : m));
       setSelectedId(id);
       setFitNonce((n) => n + 1);
     },
-    [viewDepth],
+    [],
   );
 
-  const changeDepth = (depth: ViewDepth) => {
+  const changeView = (mode: ViewMode, depth: ViewDepth) => {
+    setViewMode(mode);
     setViewDepth(depth);
-    if (depth && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
+    if (mode !== 'all' && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
     setFitNonce((n) => n + 1);
+  };
+
+  const showStory = (id: Id | null) => {
+    setActiveStory(id);
+    if (id) {
+      setPathEnds(null);
+      // Members may be outside a focused view.
+      setViewMode('all');
+    }
   };
 
   const replaceTree = (t: FamilyTree) => {
@@ -251,8 +277,11 @@ export function App() {
         onReplace={replaceTree}
         onFit={() => setFitNonce((n) => n + 1)}
         onError={setError}
-        viewDepth={focusRoot ? viewDepth : 0}
-        onViewDepth={changeDepth}
+        viewMode={focusRoot ? viewMode : 'all'}
+        viewDepth={viewDepth}
+        onView={changeView}
+        storiesOpen={storiesOpen}
+        onStories={() => setStoriesOpen((o) => !o)}
         readOnly={readOnly}
         treeName={remote?.name}
         syncStatus={remote ? (remote.role === 'viewer' ? 'readonly' : syncStatus) : loading ? 'loading' : 'local'}
@@ -269,6 +298,7 @@ export function App() {
           focusRoot={focusRoot}
           onFocusOn={focusOn}
           path={path}
+          highlight={highlight}
           selectedId={selectedId}
           focus={focus}
           fitNonce={fitNonce}
@@ -280,8 +310,28 @@ export function App() {
             {error}
           </div>
         )}
+        {storiesOpen && (
+          <StoriesPanel
+            tree={tree}
+            edit={edit}
+            readOnly={readOnly}
+            selectedId={selectedId}
+            activeStory={story ? activeStory : null}
+            onShowStory={showStory}
+            onSelect={(id) => select(id, true)}
+            onFocusOn={(id, mode) => {
+              setActiveStory(null);
+              focusOn(id, mode);
+            }}
+            onClose={() => {
+              setStoriesOpen(false);
+              setActiveStory(null);
+            }}
+          />
+        )}
         {activePath && (
           <PathCard
+            shifted={storiesOpen}
             tree={tree}
             from={activePath.from}
             to={activePath.to}
@@ -300,6 +350,10 @@ export function App() {
             onSelect={(id) => select(id, true)}
             onFocusOn={focusOn}
             onFindPath={(other) => showPath(selectedId, other)}
+            onOpenStory={(id) => {
+              setStoriesOpen(true);
+              showStory(id);
+            }}
             onClose={() => select(null)}
             readOnly={readOnly}
           />

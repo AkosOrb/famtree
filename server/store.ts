@@ -5,7 +5,7 @@ import type { Change } from '../src/sync/changes';
 import type { FamilyTree } from '../src/model/types';
 
 /**
- * SQLite storage. Persons and unions are stored as one row each, so edits
+ * SQLite storage. Persons, unions and stories are stored as one row each, so edits
  * touch only the changed rows; every accepted change set is also appended to
  * a change log, letting clients fetch just what happened since their version.
  * The log is kept only for CHANGE_LOG_DAYS, so deleted data does not linger;
@@ -50,6 +50,12 @@ export class TreeStore {
         PRIMARY KEY (tree_id, id)
       );
       CREATE TABLE IF NOT EXISTS unions (
+        tree_id TEXT NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        data TEXT NOT NULL,
+        PRIMARY KEY (tree_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS stories (
         tree_id TEXT NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
         id TEXT NOT NULL,
         data TEXT NOT NULL,
@@ -127,6 +133,8 @@ export class TreeStore {
       for (const person of Object.values(tree.persons)) p.run(id, person.id, JSON.stringify(person));
       const u = this.db.prepare('INSERT INTO unions VALUES (?, ?, ?)');
       for (const union of Object.values(tree.unions)) u.run(id, union.id, JSON.stringify(union));
+      const s = this.db.prepare('INSERT INTO stories VALUES (?, ?, ?)');
+      for (const story of Object.values(tree.stories ?? {})) s.run(id, story.id, JSON.stringify(story));
     })();
     return { id, editKey, viewKey, version: 1 };
   }
@@ -166,7 +174,7 @@ export class TreeStore {
 
   load(treeId: string): { meta: TreeMeta; tree: FamilyTree } {
     return this.db.transaction(() => {
-      const tree: FamilyTree = { version: 1, persons: {}, unions: {} };
+      const tree: FamilyTree = { version: 1, persons: {}, unions: {}, stories: {} };
       const persons = this.db.prepare('SELECT data FROM persons WHERE tree_id = ?').all(treeId) as { data: string }[];
       for (const { data } of persons) {
         const p = JSON.parse(data);
@@ -176,6 +184,11 @@ export class TreeStore {
       for (const { data } of unions) {
         const u = JSON.parse(data);
         tree.unions[u.id] = u;
+      }
+      const stories = this.db.prepare('SELECT data FROM stories WHERE tree_id = ?').all(treeId) as { data: string }[];
+      for (const { data } of stories) {
+        const st = JSON.parse(data);
+        tree.stories![st.id] = st;
       }
       return { meta: this.meta(treeId), tree };
     })();
@@ -204,7 +217,7 @@ export class TreeStore {
       const { version } = this.meta(treeId);
       if (version !== baseVersion) return null;
       const next = version + 1;
-      const tables = { person: 'persons', union: 'unions' } as const;
+      const tables = { person: 'persons', union: 'unions', story: 'stories' } as const;
       for (const c of changes) {
         const table = tables[c.kind];
         if (c.value) {

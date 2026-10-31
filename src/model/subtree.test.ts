@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from './graph';
-import { generateTree, sampleTree } from './sample';
-import { focusSubtree } from './subtree';
+import { generateTree, inLawTree, sampleTree } from './sample';
+import { focusSubtree, lineageSubtree } from './subtree';
 import { fullName } from './types';
 
 describe('focusSubtree', () => {
@@ -27,5 +27,44 @@ describe('focusSubtree', () => {
     const root = Object.keys(t.persons)[100];
     const view = focusSubtree(t, buildIndex(t), root, 3, 3);
     expect(Object.keys(view.tree.persons).length).toBeLessThan(200);
+  });
+});
+
+describe('lineageSubtree', () => {
+  const t = inLawTree();
+  const index = buildIndex(t);
+  const id = (name: string) => Object.values(t.persons).find((p) => fullName(p) === name)!.id;
+  const names = (v: { tree: { persons: Record<string, Parameters<typeof fullName>[0]> } }) =>
+    Object.values(v.tree.persons).map(fullName).sort();
+
+  it('shows only the direct ancestors in the ancestor view', () => {
+    const view = lineageSubtree(t, index, id('Kovács Gábor'), 'ancestors', Infinity);
+    expect(names(view)).toEqual(
+      ['Kovács Gábor', 'Kovács István', 'Tóth Éva', 'Kovács János', 'Szabó Mária', 'Tóth Sándor', 'Farkas Ilona'].sort(),
+    );
+    // No ⊕ for siblings or children left out on purpose.
+    expect(view.truncated.size).toBe(0);
+    const limited = lineageSubtree(t, index, id('Kovács Gábor'), 'ancestors', 1);
+    expect(names(limited)).toEqual(['Kovács Gábor', 'Kovács István', 'Tóth Éva'].sort());
+    expect([...limited.truncated].map((x) => fullName(t.persons[x])).sort()).toEqual(['Kovács István', 'Tóth Éva']);
+  });
+
+  it('shows descendants with their partners in the descendant view', () => {
+    const view = lineageSubtree(t, index, id('Kovács István'), 'descendants', Infinity);
+    expect(names(view)).toEqual(
+      ['Kovács István', 'Tóth Éva', 'Kovács Gábor', 'Horváth Lilla', 'Kovács Zsófia', 'Kovács Máté'].sort(),
+    );
+    expect(view.truncated.size).toBe(0);
+  });
+
+  it('combines both directions without siblings in the hourglass view', () => {
+    // Like the "around" view, the last generation keeps its partners (Lilla), but István's sister Katalin is left out.
+    const view = lineageSubtree(t, index, id('Kovács István'), 'hourglass', 1);
+    expect(names(view)).toEqual(
+      ['Kovács István', 'Tóth Éva', 'Kovács János', 'Szabó Mária', 'Kovács Gábor', 'Horváth Lilla', 'Kovács Zsófia'].sort(),
+    );
+    for (const u of Object.values(view.tree.unions)) {
+      [...u.partners, ...u.children].forEach((p) => expect(view.tree.persons[p]).toBeDefined());
+    }
   });
 });

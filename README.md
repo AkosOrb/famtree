@@ -44,8 +44,20 @@ Privát repóhoz a GitHub Pages fizetős csomagot (GitHub Pro) igényel; nyilvá
   kiemelődik a legrövidebb összekötő út, mellette a lépések (apja, lánya, felesége…) és a rokonsági
   megnevezés (pl. unokatestvére, nagynénje, sógornője, 5. fokú oldalági rokona).
 - **Visszavonás / újra:** Ctrl+Z, Ctrl+Y (vagy Ctrl+Shift+Z).
-- **Szűkített nézet:** „Kijelölt körül ±N generáció”: csak a kiválasztott személy felmenői, leszármazottai,
-  párjai és testvérei látszanak. A ⊕ jelvény mutatja, kinek vannak rejtett rokonai; rákattintva oda ugrik a nézet.
+- **Szűkített nézet:** a kiválasztott személyből kiindulva 2, 3, 5 vagy az összes generáció:
+  - „Kijelölt körül”: felmenők, leszármazottak, párok és testvérek;
+  - „Felmenők”: csak az egyenes ági ősök (szülők, nagyszülők…);
+  - „Utódok”: gyermekek, unokák… a párjaikkal;
+  - „Felmenők és utódok”: a kettő együtt, testvérek nélkül.
+
+  A személy adatlapján is választható (Körülötte / Felmenői / Utódai / Mindkettő). A ⊕ jelvény mutatja, kinek
+  vannak rejtett rokonai (felmenő/utód nézetben csak a nézet irányában); rákattintva oda ugrik a nézet.
+- **Családtörténet kártyák:** a „Történetek” gombbal nyíló panelen események, emlékek rögzíthetők (cím, időpont,
+  helyszín, szöveg), és tetszőleges családtagok rendelhetők hozzájuk. A kártyák időrendben jelennek meg; egy kártyára
+  kattintva a tagjai kiemelődnek a fán, és bármelyik tagból kiindulva megnyitható a felmenői vagy utódai nézet. A
+  személy adatlapján látszanak a történetei. A csak olvasható linken nem látszik az a történet, amely „Rejtett”-nek
+  van jelölve, amelynek bármelyik tagja rejtett, vagy ha a megjegyzések rejtve vannak. A GEDCOM export a
+  történeteket nem tartalmazza, a JSON igen.
 - **Mentés:** alapból a böngésző localStorage-ába; JSON és GEDCOM (.ged) export és import.
 - **Szerveres tárolás és megosztás:** a „Megosztás” gombbal a fa feltölthető a szerverre. Ezután egy
   szerkesztői és egy csak olvasható linket kapsz. Több szerkesztő egyszerre is dolgozhat: a módosítások
@@ -67,12 +79,12 @@ Privát repóhoz a GitHub Pages fizetős csomagot (GitHub Pro) igényel; nyilvá
 ```
 src/
   model/      adatmodell és tiszta (immutábilis) műveletek
-    types.ts       Person, Union, FamilyTree
+    types.ts       Person, Union, Story (családtörténet kártya), FamilyTree
     graph.ts       visszafelé mutató indexek (ki kinek a szülője, párja)
     operations.ts  hozzáadás, összekapcsolás, törlés, ellenőrzésekkel (pl. körkörös leszármazás)
     storage.ts     TreeRepository interfész + localStorage megvalósítás
     gedcom.ts      GEDCOM 5.5.1 import/export
-    subtree.ts     személy köré szűkített részfa
+    subtree.ts     személy köré szűkített részfa (körülötte / felmenők / utódok / mindkettő)
     relationship.ts  útkeresés két személy között, rokonsági megnevezés
     sample.ts      mintaadatok és nagy fa generátor
     photo.ts       feltöltött kép vágása, kicsinyítése
@@ -136,4 +148,4 @@ változtatás nélkül átvihető szerveroldalra is.
 - Elfelejtett jelszó (e-mail küldés), személyre szóló meghívás szerkesztőnek
 - Valós idejű frissítés (WebSocket) az 5 másodperces lekérdezés helyett
 - Canvas/WebGL megjelenítés nagyon kicsi nagyításnál, 10 000+ fős fákhoz
-- Fényképek, események, helyszínek
+- Fényképek a történetekhez, helyszínek térképen

@@ -1,6 +1,6 @@
 import { buildIndex, isAncestor } from './graph';
 import { newId } from './id';
-import type { FamilyTree, Id, Person, PersonInput, Union } from './types';
+import { storiesOf, type FamilyTree, type Id, type Person, type PersonInput, type Story, type StoryInput, type Union } from './types';
 
 /**
  * Pure, immutable edits of a FamilyTree. Every function returns a new tree
@@ -54,7 +54,53 @@ export function removePerson(tree: FamilyTree, id: Id): FamilyTree {
     if (next.partners.length === 1 && next.children.length === 0) continue;
     unions[next.id] = next;
   }
-  return { ...tree, persons, unions };
+  let stories = tree.stories;
+  for (const st of Object.values(storiesOf(tree))) {
+    if (!st.members.includes(id)) continue;
+    if (stories === tree.stories) stories = { ...stories };
+    stories![st.id] = { ...st, members: st.members.filter((m) => m !== id) };
+  }
+  return stories ? { ...tree, persons, unions, stories } : { ...tree, persons, unions };
+}
+
+// ---- Family history cards (stories) ----
+
+function cleanStory(tree: FamilyTree, input: StoryInput): StoryInput {
+  const title = input.title.trim();
+  if (!title) throw new TreeError('A történetnek adj címet.');
+  const members = [...new Set(input.members)];
+  for (const m of members) requirePerson(tree, m);
+  const result: StoryInput = { title, text: input.text, members };
+  if (input.date?.trim()) result.date = input.date.trim();
+  if (input.place?.trim()) result.place = input.place.trim();
+  if (input.private) result.private = true;
+  return result;
+}
+
+function withStory(tree: FamilyTree, story: Story): FamilyTree {
+  return { ...tree, stories: { ...storiesOf(tree), [story.id]: story } };
+}
+
+export function addStory(tree: FamilyTree, input: StoryInput): [FamilyTree, Id] {
+  const id = newId('s');
+  return [withStory(tree, { ...cleanStory(tree, input), id }), id];
+}
+
+export function updateStory(tree: FamilyTree, id: Id, patch: Partial<StoryInput>): FamilyTree {
+  const st = storiesOf(tree)[id];
+  if (!st) throw new TreeError(`Ismeretlen történet: ${id}`);
+  return withStory(tree, { ...cleanStory(tree, { ...st, ...patch }), id });
+}
+
+export function removeStory(tree: FamilyTree, id: Id): FamilyTree {
+  if (!storiesOf(tree)[id]) return tree;
+  const stories = { ...storiesOf(tree) };
+  delete stories[id];
+  return { ...tree, stories };
+}
+
+export function storiesWith(tree: FamilyTree, personId: Id): Story[] {
+  return Object.values(storiesOf(tree)).filter((s) => s.members.includes(personId));
 }
 
 /** Links two existing persons as partners (no-op if they already are). */

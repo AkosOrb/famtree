@@ -1,4 +1,4 @@
-import { addChild, addParent, addPartner, addPerson } from './operations';
+import { addChild, addParent, addPartner, addPerson, addStory } from './operations';
 import { emptyTree, type FamilyTree, type Gender, type Id, type PersonInput } from './types';
 
 const p = (
@@ -55,6 +55,20 @@ export function inLawTree(): FamilyTree {
     [t] = addParent(t, id, father);
     [t] = addParent(t, id, mother);
   }
+  [t] = addStory(t, {
+    title: 'János és Mária esküvője',
+    date: '1956 ősze',
+    place: 'Kecskemét',
+    text: 'A lakodalmat a nagyszülők udvarán tartották, a fél falu ott volt.',
+    members: [find('Kovács János'), find('Szabó Mária')],
+  });
+  [t] = addStory(t, {
+    title: 'A családi ház építése',
+    date: '1972',
+    place: 'Kecskemét',
+    text: 'János a fiaival két nyár alatt maga építette fel a házat, amelyben ma is lakik a család.',
+    members: [find('Kovács János'), find('Kovács István'), find('Kovács Ferenc')],
+  });
   return t;
 }
 

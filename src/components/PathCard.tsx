@@ -8,15 +8,17 @@ interface Props {
   path: PathStep[] | null;
   onSelect: (id: Id) => void;
   onClose: () => void;
+  /** Moved aside when the stories panel takes the left edge. */
+  shifted?: boolean;
 }
 
 /** Explains the relationship between two people, step by step. */
-export function PathCard({ tree, from, to, path, onSelect, onClose }: Props) {
+export function PathCard({ tree, from, to, path, onSelect, onClose, shifted }: Props) {
   const a = fullName(tree.persons[from]);
   const b = fullName(tree.persons[to]);
   const term = path ? kinshipTerm(tree, path) : null;
   return (
-    <section className="path-card" aria-label="Rokoni kapcsolat">
+    <section className={`path-card${shifted ? ' shifted' : ''}`} aria-label="Rokoni kapcsolat">
       <header className="panel-header">
         <h2>Kapcsolat</h2>
         <button className="icon" onClick={onClose} aria-label="Kiemelés bezárása">
