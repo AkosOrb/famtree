@@ -13,7 +13,7 @@ import { buildIndex } from './model/graph';
 import { addPerson, TreeError } from './model/operations';
 import { inLawTree } from './model/sample';
 import { findPath } from './model/relationship';
-import { lineageSubtree, type LineageMode } from './model/subtree';
+import { familyNames, familySubtree, lineageSubtree, type LineageMode } from './model/subtree';
 import { DEFAULT_PRIVACY, type PrivacySettings } from './model/privacy';
 import { localRepository } from './model/storage';
 import { emptyTree, storiesOf, type FamilyTree, type Id } from './model/types';
@@ -30,8 +30,11 @@ export interface Focus {
   nonce: number;
 }
 
-/** 'all' = whole tree; otherwise the part around the view's root person (see model/subtree.ts). */
-export type ViewMode = 'all' | LineageMode;
+/**
+ * 'all' = whole tree; 'family' = one family name and those who married in; otherwise the part
+ * around the view's root person (see model/subtree.ts).
+ */
+export type ViewMode = 'all' | 'family' | LineageMode;
 /** Generations shown from the root person; 0 = all generations. */
 export type ViewDepth = 0 | 2 | 3 | 5;
 
@@ -79,18 +82,23 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [viewDepth, setViewDepth] = useState<ViewDepth>(3);
   const [viewRoot, setViewRoot] = useState<Id | null>(null);
+  const [viewFamily, setViewFamily] = useState<string | null>(null);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [is3d, setIs3d] = useState(false);
   const [activeStory, setActiveStory] = useState<Id | null>(null);
 
   const index = useMemo(() => buildIndex(tree), [tree]);
-  const focusRoot = viewMode !== 'all' && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
+  const families = useMemo(() => familyNames(tree), [tree]);
+  const family = viewMode === 'family' && viewFamily && families.some((f) => f.name === viewFamily) ? viewFamily : null;
+  const focusRoot = viewMode !== 'all' && viewMode !== 'family' && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
   const view = useMemo(
     () =>
-      focusRoot && viewMode !== 'all'
-        ? lineageSubtree(tree, index, focusRoot, viewMode, viewDepth || Infinity)
-        : { tree, truncated: new Set<Id>() },
-    [tree, index, focusRoot, viewMode, viewDepth],
+      family
+        ? familySubtree(tree, index, family)
+        : focusRoot && viewMode !== 'all' && viewMode !== 'family'
+          ? lineageSubtree(tree, index, focusRoot, viewMode, viewDepth || Infinity)
+          : { tree, truncated: new Set<Id>() },
+    [tree, index, family, focusRoot, viewMode, viewDepth],
   );
 
   const story = activeStory ? storiesOf(tree)[activeStory] : undefined;
@@ -222,26 +230,29 @@ export function App() {
       setSelectedId(id);
       // In focus view, jumping to someone outside the visible part re-centres the view on them.
       if (id && focusRoot && !view.tree.persons[id]) setViewRoot(id);
+      // Someone outside the family shown: show the whole tree again.
+      if (id && family && !view.tree.persons[id]) setViewMode('all');
       if (id && center) setFocus({ id, nonce: Date.now() });
     },
-    [focusRoot, view.tree],
+    [focusRoot, family, view.tree],
   );
 
   /** Narrows the view to `id`; keeps the current mode, or uses `mode` when given. */
-  const focusOn = useCallback(
-    (id: Id, mode?: LineageMode) => {
-      setViewRoot(id);
-      setViewMode((m) => mode ?? (m === 'all' ? 'around' : m));
-      setSelectedId(id);
-      setFitNonce((n) => n + 1);
-    },
-    [],
-  );
+  const focusOn = useCallback((id: Id, mode?: LineageMode) => {
+    setViewRoot(id);
+    setViewMode((m) => mode ?? (m === 'all' || m === 'family' ? 'around' : m));
+    setSelectedId(id);
+    setFitNonce((n) => n + 1);
+  }, []);
 
-  const changeView = (mode: ViewMode, depth: ViewDepth) => {
+  const changeView = (mode: ViewMode, depth: ViewDepth, familyName?: string) => {
     setViewMode(mode);
     setViewDepth(depth);
-    if (mode !== 'all' && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
+    if (mode === 'family') {
+      // The selected person's family, unless another one is picked; else the largest.
+      const selected = selectedId ? tree.persons[selectedId]?.lastName.trim() : undefined;
+      setViewFamily(familyName ?? family ?? (selected || families[0]?.name) ?? null);
+    } else if (mode !== 'all' && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
     setFitNonce((n) => n + 1);
   };
 
@@ -281,7 +292,9 @@ export function App() {
         onReplace={replaceTree}
         onFit={() => setFitNonce((n) => n + 1)}
         onError={setError}
-        viewMode={focusRoot ? viewMode : 'all'}
+        viewMode={focusRoot || family ? viewMode : 'all'}
+        families={families}
+        family={family}
         viewDepth={viewDepth}
         onView={changeView}
         is3d={is3d}
@@ -301,7 +314,15 @@ export function App() {
       />
       <main className="main">
         {is3d ? (
-          <Suspense fallback={<div className="canvas"><div className="empty"><p>3D nézet betöltése…</p></div></div>}>
+          <Suspense
+            fallback={
+              <div className="canvas">
+                <div className="empty">
+                  <p>3D nézet betöltése…</p>
+                </div>
+              </div>
+            }
+          >
             <TreeCanvas3D
               tree={tree}
               layout={layout}

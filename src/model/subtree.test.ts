@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from './graph';
 import { generateTree, inLawTree, sampleTree } from './sample';
-import { focusSubtree, lineageSubtree } from './subtree';
+import { familyNames, familySubtree, focusSubtree, lineageSubtree } from './subtree';
 import { fullName } from './types';
 
 describe('focusSubtree', () => {
@@ -63,6 +63,38 @@ describe('lineageSubtree', () => {
     expect(names(view)).toEqual(
       ['Kovács István', 'Tóth Éva', 'Kovács János', 'Szabó Mária', 'Kovács Gábor', 'Horváth Lilla', 'Kovács Zsófia'].sort(),
     );
+    for (const u of Object.values(view.tree.unions)) {
+      [...u.partners, ...u.children].forEach((p) => expect(view.tree.persons[p]).toBeDefined());
+    }
+  });
+});
+
+describe('familySubtree', () => {
+  it('shows everyone with the family name and their partners, and flags hidden relatives', () => {
+    const t = inLawTree();
+    expect(familyNames(t)[0]).toEqual({ name: 'Kovács', count: 7 });
+    const view = familySubtree(t, buildIndex(t), 'Kovács');
+    const names = Object.values(view.tree.persons).map(fullName).sort();
+    expect(names).toEqual(
+      [
+        'Horváth Lilla',
+        'Kovács Ferenc',
+        'Kovács Gábor',
+        'Kovács István',
+        'Kovács János',
+        'Kovács Katalin',
+        'Kovács Máté',
+        'Kovács Zsófia',
+        'Nagy Péter',
+        'Szabó Mária',
+        'Tóth Éva',
+      ].sort((a, b) => a.localeCompare(b)),
+    );
+    const byName = (n: string) => Object.values(t.persons).find((p) => fullName(p) === n)!.id;
+    // Katalin's children are Nagys; Éva's parents are outside the family.
+    expect(view.truncated.has(byName('Kovács Katalin'))).toBe(true);
+    expect(view.truncated.has(byName('Tóth Éva'))).toBe(true);
+    expect(view.truncated.has(byName('Kovács Ferenc'))).toBe(false);
     for (const u of Object.values(view.tree.unions)) {
       [...u.partners, ...u.children].forEach((p) => expect(view.tree.persons[p]).toBeDefined());
     }

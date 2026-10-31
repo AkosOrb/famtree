@@ -524,7 +524,7 @@ export default function TreeCanvas3D(props: Props) {
         </div>
       )}
       <div className="status">
-        {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · 3D
+        {count < Object.keys(tree.persons).length ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · 3D
         <span className="hint-3d"> · húzás: forgatás · görgő: nagyítás · jobb gomb: mozgatás</span>
       </div>
       {selectedId && <LinkLegend links={links} />}
