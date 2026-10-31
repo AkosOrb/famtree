@@ -6,12 +6,12 @@ import { directLinks } from './links';
 import { assignLayers, computeLayout3D, LAYER_GAP, MIN_RADIUS } from './layout3d';
 
 describe('3D layout', () => {
-  it('keeps everyone on their layer of the cylinder, older generations higher', () => {
+  it('puts each generation on its own, wider cylinder, everyone on their layer, older generations higher', () => {
     const l = computeLayout(inLawTree());
     const l3 = computeLayout3D(l);
     expect(l3.persons.size).toBe(l.persons.size);
     for (const p of l3.persons.values()) {
-      expect(Math.hypot(p.x, p.z)).toBeCloseTo(l3.radius + p.layer * LAYER_GAP, 6);
+      expect(Math.hypot(p.x, p.z)).toBeCloseTo(l3.radius + p.gen * l3.genStep + p.layer * LAYER_GAP, 6);
     }
     const byGen = new Map<number, number>();
     for (const p of l3.persons.values()) byGen.set(p.gen, p.y);
@@ -29,6 +29,10 @@ describe('3D layout', () => {
     expect(span).toBeLessThan(2 * Math.PI - NODE_W / wide.radius);
     expect(wide.edges.length % 6).toBe(0);
     expect(wide.edges.every(Number.isFinite)).toBe(true);
+    // Each generation's layers stay clear of the next generation's.
+    const wideLayers = assignLayers(computeLayout(generateTree(2000, 1, 0.3)));
+    const all = [...wideLayers.persons.values(), ...wideLayers.unions.values()];
+    expect(wide.genStep).toBeGreaterThan((Math.max(...all) - Math.min(...all)) * LAYER_GAP);
   });
 
   it('moves families whose lines would cross into another layer, and keeps the rest together', () => {

@@ -1,4 +1,4 @@
-import { NODE_H, NODE_W, type Layout, type PersonBox, type UnionGeometry } from './layout';
+import { NODE_H, NODE_W, ROW_H, type Layout, type PersonBox, type UnionGeometry } from './layout';
 import type { Relation } from '../model/relationship';
 import type { Id } from '../model/types';
 
@@ -28,13 +28,17 @@ export interface Layout3D {
   persons: Map<Id, Person3D>;
   /** Pairs of points, flattened: [ax, ay, az, bx, by, bz, ...]. */
   edges: Float32Array;
-  /** Radius of the surface the cards stand on. */
+  /** Radius of the oldest generation's cylinder. */
   radius: number;
+  /** How much wider each generation's cylinder is than the one above it. */
+  genStep: number;
   /** Radius of the outermost line layer in use. */
   outerRadius: number;
   height: number;
   /** True when the tree reaches round to the back of the cylinder. */
   wrapped: boolean;
+  /** Outermost radius used at height `y` (the cylinder of the generation there). */
+  shellRadius: (y: number) => number;
   /**
    * The tree lines between two related people, as pairs of points like `edges`:
    * `relation` is what `to` is to `from`. Empty when they are not directly linked.
@@ -43,7 +47,9 @@ export interface Layout3D {
 }
 
 /** Below this radius a tree is not wrapped into a full circle. */
-export const MIN_RADIUS = 900;
+export const MIN_RADIUS = 1200;
+/** Room between the outermost layer of one generation's cylinder and the innermost of the next. */
+const GEN_GAP = 200;
 /** Distance between two depth layers. */
 export const LAYER_GAP = 170;
 /** Share of the circumference left empty, so the two ends of a wide tree do not touch. */
@@ -142,7 +148,15 @@ export function computeLayout3D(layout: Layout): Layout3D {
     MIN_RADIUS - minLayer * LAYER_GAP,
     width / (2 * Math.PI * (1 - WRAP_GAP)) - minLayer * LAYER_GAP,
   );
-  const radiusOf = (layer: number) => radius + layer * LAYER_GAP;
+  /**
+   * Each generation stands on its own cylinder, one step wider than the one above, so the
+   * tree reads as a stepped tower; depth layers are offsets from a generation's cylinder.
+   * Fractional generations are the sibling lines between two cylinders.
+   */
+  // Wide enough that the layers of two generations never reach into each other.
+  const genStep = (maxLayer - minLayer) * LAYER_GAP + GEN_GAP;
+  const radiusOf = (layer: number, gen: number) => radius + gen * genStep + layer * LAYER_GAP;
+  const maxGen = Math.max(0, ...[...layout.persons.values()].map((p) => p.gen));
   const midX = (bounds.minX + bounds.maxX) / 2;
   const midY = (bounds.minY + bounds.maxY + NODE_H) / 2;
 
@@ -155,7 +169,7 @@ export function computeLayout3D(layout: Layout): Layout3D {
   const persons = new Map<Id, Person3D>();
   for (const p of layout.persons.values()) {
     const layer = layers.persons.get(p.id) ?? 0;
-    const c = at(p.x, p.y + NODE_H / 2, radiusOf(layer));
+    const c = at(p.x, p.y + NODE_H / 2, radiusOf(layer, p.gen));
     persons.set(p.id, { ...c, id: p.id, angle: angleOf(p.x), gen: p.gen, layer });
   }
 
@@ -170,8 +184,13 @@ export function computeLayout3D(layout: Layout): Layout3D {
       push(out, at(x1 + (x2 - x1) * t0, y, r1 + (r2 - r1) * t0), at(x1 + (x2 - x1) * t1, y, r1 + (r2 - r1) * t1));
     }
   };
-  const rp = (id: Id) => radiusOf(layers.persons.get(id) ?? 0);
-  const ruOf = (u: UnionGeometry) => radiusOf(layers.unions.get(u.id) ?? 0);
+  const rp = (id: Id) => radiusOf(layers.persons.get(id) ?? 0, layout.persons.get(id)?.gen ?? 0);
+  const genOfUnion = (u: UnionGeometry) => {
+    const gens = u.partners.map((id) => layout.persons.get(id)?.gen).filter((g) => g != null);
+    return gens.length ? Math.min(...gens) : 0;
+  };
+  /** The family's radius on the parents' cylinder (`at` 0) or at its sibling line (`at` 0.5). */
+  const ruOf = (u: UnionGeometry, step = 0) => radiusOf(layers.unions.get(u.id) ?? 0, genOfUnion(u) + step);
 
   /** From a partner's card to the family point (the start of the line down to the children). */
   const partnerToFamily = (out: Out, u: UnionGeometry, partner: PersonBox) => {
@@ -186,25 +205,26 @@ export function computeLayout3D(layout: Layout): Layout3D {
   };
   /** From the family point down to one child. */
   const familyToChild = (out: Out, u: UnionGeometry, child: PersonBox) => {
-    const ru = ruOf(u);
-    push(out, at(u.x, u.y, ru), at(u.x, u.barY, ru));
-    horizontal(out, u.x, child.x, u.barY, ru);
-    // A child who has moved to their own family's layer is reached by a slanted line.
-    push(out, at(child.x, u.barY, ru), at(child.x, child.y, rp(child.id)));
+    const rb = ruOf(u, 0.5);
+    // Down from the parents' cylinder to the sibling line, half a step wider.
+    push(out, at(u.x, u.y, ruOf(u)), at(u.x, u.barY, rb));
+    horizontal(out, u.x, child.x, u.barY, rb);
+    // On to the child's cylinder (and the child's own family layer, if they have moved).
+    push(out, at(child.x, u.barY, rb), at(child.x, child.y, rp(child.id)));
   };
 
   const out: Out = [];
   for (const u of layout.unions) {
-    const ru = ruOf(u);
     const partners = u.partners.map((id) => layout.persons.get(id)).filter((p) => !!p);
     const kids = u.children.map((id) => layout.persons.get(id)).filter((p) => !!p);
     // Partners share the family's layer; only someone with a second family can stand elsewhere.
     for (const p of partners) partnerToFamily(out, u, p);
     if (!kids.length) continue;
+    const rb = ruOf(u, 0.5);
     const xs = [u.x, ...kids.map((k) => k.x)];
-    push(out, at(u.x, u.y, ru), at(u.x, u.barY, ru));
-    horizontal(out, Math.min(...xs), Math.max(...xs), u.barY, ru);
-    for (const k of kids) push(out, at(k.x, u.barY, ru), at(k.x, k.y, rp(k.id)));
+    push(out, at(u.x, u.y, ruOf(u)), at(u.x, u.barY, rb));
+    horizontal(out, Math.min(...xs), Math.max(...xs), u.barY, rb);
+    for (const k of kids) push(out, at(k.x, u.barY, rb), at(k.x, k.y, rp(k.id)));
   }
 
   const link = (from: Id, to: Id, relation: Relation): number[] => {
@@ -234,7 +254,10 @@ export function computeLayout3D(layout: Layout): Layout3D {
     edges: new Float32Array(out),
     link,
     radius,
-    outerRadius: radiusOf(maxLayer),
+    genStep,
+    outerRadius: radiusOf(maxLayer, maxGen),
+    shellRadius: (y: number) =>
+      radiusOf(maxLayer, Math.min(maxGen, Math.max(0, Math.round((midY - y - NODE_H / 2) / ROW_H)))),
     height,
     wrapped: maxAngle > Math.PI / 2,
   };
