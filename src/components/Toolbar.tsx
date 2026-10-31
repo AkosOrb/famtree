@@ -24,6 +24,8 @@ interface Props {
   viewMode: ViewMode;
   viewDepth: ViewDepth;
   onView: (mode: ViewMode, depth: ViewDepth) => void;
+  is3d: boolean;
+  onToggle3d: () => void;
   storiesOpen: boolean;
   onStories: () => void;
   readOnly: boolean;
@@ -57,7 +59,22 @@ function download(content: string, type: string, filename: string) {
 
 export function Toolbar(props: Props) {
   const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
-  const { viewMode, viewDepth, onView, storiesOpen, onStories, readOnly, treeName, syncStatus, onShare, user, onAccount, onPrivacy } = props;
+  const {
+    viewMode,
+    viewDepth,
+    onView,
+    is3d,
+    onToggle3d,
+    storiesOpen,
+    onStories,
+    readOnly,
+    treeName,
+    syncStatus,
+    onShare,
+    user,
+    onAccount,
+    onPrivacy,
+  } = props;
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportAs = (format: string) => {
@@ -138,6 +155,14 @@ export function Toolbar(props: Props) {
             <option value={0}>Összes generáció</option>
           </select>
         )}
+        <button
+          className={is3d ? 'active' : undefined}
+          onClick={onToggle3d}
+          aria-pressed={is3d}
+          title={is3d ? 'Vissza a síkbeli nézetre' : 'Térbeli nézet: a fa egy forgatható henger palástján'}
+        >
+          3D
+        </button>
         <button className={storiesOpen ? 'active' : undefined} onClick={onStories} aria-pressed={storiesOpen}>
           Történetek
         </button>

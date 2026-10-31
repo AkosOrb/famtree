@@ -975,3 +975,87 @@ button.link {
     left: 12px;
   }
 }
+
+/* 3D view (components/TreeCanvas3D.tsx) */
+.canvas-3d {
+  overflow: hidden;
+}
+
+.tree-3d {
+  position: absolute;
+  inset: 0;
+}
+
+.tree-3d-gl {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tree-3d-gl:active {
+  cursor: grabbing;
+}
+
+.labels-3d {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.label-3d {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+  text-align: center;
+  transform-origin: 0 0;
+  color: var(--text);
+  line-height: 1.25;
+  text-shadow: 0 0 3px var(--surface);
+}
+
+.label-3d b {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.label-3d small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.rotate-3d {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+@media (max-width: 720px) {
+  .hint-3d {
+    display: none;
+  }
+}
+
+.canvas-3d .rotate-3d {
+  flex-direction: row;
+  flex: none;
+}

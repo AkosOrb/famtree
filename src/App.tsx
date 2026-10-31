@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { PersonPanel } from './components/PersonPanel';
 import { AccountDialog } from './components/AccountDialog';
 import { ConfirmHost } from './components/ConfirmDialog';
@@ -21,6 +21,9 @@ import { api, sessionFromUrl, shareUrl, type Role, type ServerSession, type User
 import type { Change } from './sync/changes';
 import { useServerSync } from './sync/useServerSync';
 import { historyReducer } from './state';
+
+// three.js is large: load it only when someone opens the 3D view.
+const TreeCanvas3D = lazy(() => import('./components/TreeCanvas3D'));
 
 export interface Focus {
   id: Id;
@@ -77,6 +80,7 @@ export function App() {
   const [viewDepth, setViewDepth] = useState<ViewDepth>(3);
   const [viewRoot, setViewRoot] = useState<Id | null>(null);
   const [storiesOpen, setStoriesOpen] = useState(false);
+  const [is3d, setIs3d] = useState(false);
   const [activeStory, setActiveStory] = useState<Id | null>(null);
 
   const index = useMemo(() => buildIndex(tree), [tree]);
@@ -280,6 +284,11 @@ export function App() {
         viewMode={focusRoot ? viewMode : 'all'}
         viewDepth={viewDepth}
         onView={changeView}
+        is3d={is3d}
+        onToggle3d={() => {
+          setIs3d((v) => !v);
+          setFitNonce((n) => n + 1);
+        }}
         storiesOpen={storiesOpen}
         onStories={() => setStoriesOpen((o) => !o)}
         readOnly={readOnly}
@@ -291,20 +300,39 @@ export function App() {
         onPrivacy={() => setPrivacyOpen(true)}
       />
       <main className="main">
-        <TreeCanvas
-          tree={tree}
-          layout={layout}
-          truncated={view.truncated}
-          focusRoot={focusRoot}
-          onFocusOn={focusOn}
-          path={path}
-          highlight={highlight}
-          selectedId={selectedId}
-          focus={focus}
-          fitNonce={fitNonce}
-          onSelect={select}
-          onAddFirst={readOnly ? undefined : addFirstPerson}
-        />
+        {is3d ? (
+          <Suspense fallback={<div className="canvas"><div className="empty"><p>3D nézet betöltése…</p></div></div>}>
+            <TreeCanvas3D
+              tree={tree}
+              layout={layout}
+              truncated={view.truncated}
+              focusRoot={focusRoot}
+              onFocusOn={focusOn}
+              path={path}
+              highlight={highlight}
+              selectedId={selectedId}
+              focus={focus}
+              fitNonce={fitNonce}
+              onSelect={select}
+              onAddFirst={readOnly ? undefined : addFirstPerson}
+            />
+          </Suspense>
+        ) : (
+          <TreeCanvas
+            tree={tree}
+            layout={layout}
+            truncated={view.truncated}
+            focusRoot={focusRoot}
+            onFocusOn={focusOn}
+            path={path}
+            highlight={highlight}
+            selectedId={selectedId}
+            focus={focus}
+            fitNonce={fitNonce}
+            onSelect={select}
+            onAddFirst={readOnly ? undefined : addFirstPerson}
+          />
+        )}
         {error && (
           <div className="toast" role="alert" onClick={() => setError(null)}>
             {error}
