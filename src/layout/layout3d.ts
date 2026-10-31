@@ -19,6 +19,8 @@ export interface Person3D extends Point3 {
   /** Angle around the cylinder axis; the card faces outward along it. */
   angle: number;
   gen: number;
+  /** Depth layer: 0 is the base surface, positive further out, negative further in. */
+  layer: number;
 }
 
 export interface Layout3D {
@@ -54,13 +56,15 @@ interface Span {
  * Gives every family (union) a depth layer. A family stays in the layer of its
  * own branch while its lines have room there; when its sibling line would run
  * into another family's line in the same generation gap, it moves to the
- * nearest layer with room, further in or further out. Children carry their
- * parents' family layer on as their branch's layer, so a branch keeps its depth
- * down the generations. Only lines use these layers; cards all stay on one surface.
+ * nearest layer with room, further in or further out. Children stand in their
+ * parents' family layer, so a branch keeps its depth down the generations,
+ * until they start a family of their own: a couple always shares one layer.
  */
 export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions: Map<Id, number> } {
   const personLayer = new Map<Id, number>();
   const unionLayer = new Map<Id, number>();
+  /** Persons already placed with their own (first) family, as a partner. */
+  const settled = new Set<Id>();
   const genOf = (u: UnionGeometry) => {
     const gens = u.partners.map((id) => layout.persons.get(id)?.gen).filter((g) => g != null);
     return gens.length ? Math.min(...gens) : 0;
@@ -108,8 +112,12 @@ export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions
       gap.set(layer, spans);
     }
     unionLayer.set(u.id, layer);
-    // Partners who married in sit with the family they joined.
-    for (const id of partners) if (!personLayer.has(id)) personLayer.set(id, layer);
+    // Both partners stand in their family's layer, so a couple is never split.
+    for (const id of partners) {
+      if (settled.has(id)) continue;
+      settled.add(id);
+      personLayer.set(id, layer);
+    }
     for (const k of kids) if (!personLayer.has(k.id)) personLayer.set(k.id, layer);
   }
   for (const id of layout.persons.keys()) if (!personLayer.has(id)) personLayer.set(id, 0);
@@ -121,9 +129,9 @@ export function computeLayout3D(layout: Layout): Layout3D {
   const width = bounds.maxX - bounds.minX + NODE_W;
   const height = bounds.maxY - bounds.minY + NODE_H;
   const layers = assignLayers(layout);
-  const minLayer = Math.min(0, ...layers.unions.values());
-  const maxLayer = Math.max(0, ...layers.unions.values());
-  // The innermost line layer must still be wide enough for the tree.
+  const minLayer = Math.min(0, ...layers.unions.values(), ...layers.persons.values());
+  const maxLayer = Math.max(0, ...layers.unions.values(), ...layers.persons.values());
+  // The innermost layer must still be wide enough for the tree.
   const radius = Math.max(
     MIN_RADIUS - minLayer * LAYER_GAP,
     width / (2 * Math.PI * (1 - WRAP_GAP)) - minLayer * LAYER_GAP,
@@ -140,34 +148,42 @@ export function computeLayout3D(layout: Layout): Layout3D {
 
   const persons = new Map<Id, Person3D>();
   for (const p of layout.persons.values()) {
-    // Every card, partners included, stands on the same surface: only the lines use depth.
-    const c = at(p.x, p.y + NODE_H / 2, radius);
-    persons.set(p.id, { ...c, id: p.id, angle: angleOf(p.x), gen: p.gen });
+    const layer = layers.persons.get(p.id) ?? 0;
+    const c = at(p.x, p.y + NODE_H / 2, radiusOf(layer));
+    persons.set(p.id, { ...c, id: p.id, angle: angleOf(p.x), gen: p.gen, layer });
   }
 
   const out: number[] = [];
   const push = (a: Point3, b: Point3) => out.push(a.x, a.y, a.z, b.x, b.y, b.z);
-  /** A line along the curve from x1 to x2. */
-  const horizontal = (x1: number, x2: number, y: number, r: number) => {
+  /** A line along the curve from x1 to x2, moving from depth r1 to r2 on the way. */
+  const horizontal = (x1: number, x2: number, y: number, r1: number, r2 = r1) => {
     const n = Math.max(1, Math.ceil(Math.abs(x2 - x1) / SEGMENT));
-    for (let i = 0; i < n; i++) push(at(x1 + ((x2 - x1) * i) / n, y, r), at(x1 + ((x2 - x1) * (i + 1)) / n, y, r));
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n;
+      const t1 = (i + 1) / n;
+      push(at(x1 + (x2 - x1) * t0, y, r1 + (r2 - r1) * t0), at(x1 + (x2 - x1) * t1, y, r1 + (r2 - r1) * t1));
+    }
   };
+  const rp = (id: Id) => radiusOf(layers.persons.get(id) ?? 0);
 
   for (const u of layout.unions) {
     const ru = radiusOf(layers.unions.get(u.id) ?? 0);
     const partners = u.partners.map((id) => layout.persons.get(id)).filter((p) => !!p);
     const kids = u.children.map((id) => layout.persons.get(id)).filter((p) => !!p);
+    // Partners share the family's layer; only someone with a second family can stand elsewhere.
     if (partners.length === 2) {
       const [a, b] = [...partners].sort((p, q) => p.x - q.x);
-      horizontal(a.x + NODE_W / 2, b.x - NODE_W / 2, a.y + NODE_H / 2, radius);
+      horizontal(a.x + NODE_W / 2, u.x, a.y + NODE_H / 2, rp(a.id), ru);
+      horizontal(u.x, b.x - NODE_W / 2, b.y + NODE_H / 2, ru, rp(b.id));
+    } else if (partners.length === 1 && rp(partners[0].id) !== ru) {
+      push(at(u.x, u.y, rp(partners[0].id)), at(u.x, u.y, ru));
     }
     if (!kids.length) continue;
-    // The family's lines leave the surface for its own layer: down from the parents to the
-    // sibling line, along it, and back to the surface at each child.
     const xs = [u.x, ...kids.map((k) => k.x)];
-    push(at(u.x, u.y, radius), at(u.x, u.barY, ru));
+    push(at(u.x, u.y, ru), at(u.x, u.barY, ru));
     horizontal(Math.min(...xs), Math.max(...xs), u.barY, ru);
-    for (const k of kids) push(at(k.x, u.barY, ru), at(k.x, k.y, radius));
+    // A child who has moved to their own family's layer is reached by a slanted line.
+    for (const k of kids) push(at(k.x, u.barY, ru), at(k.x, k.y, rp(k.id)));
   }
 
   let maxAngle = 0;
