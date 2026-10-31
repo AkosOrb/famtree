@@ -47,16 +47,16 @@ export interface Layout3D {
 }
 
 /** Below this radius a tree is not wrapped into a full circle. */
-export const MIN_RADIUS = 1200;
+export const MIN_RADIUS = 600;
 /**
  * Vertical stretch of the generations, so the stepped tower rises steeply. Only the room
  * between the rows is stretched: the cards keep their size, so the lines still meet them.
  */
 export const Y_SCALE = 2.2;
 /** Room between the outermost layer of one generation's cylinder and the innermost of the next. */
-const GEN_GAP = 90;
+const GEN_GAP = 50;
 /** Distance between two depth layers. */
-export const LAYER_GAP = 120;
+export const LAYER_GAP = 90;
 /** Share of the room between two rows that the lines run straight down before they fan out. */
 const STEM = 0.2;
 /** Share of the circumference left empty, so the two ends of a wide tree do not touch. */
