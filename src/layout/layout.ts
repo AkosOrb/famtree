@@ -113,6 +113,22 @@ function assignGenerations(tree: FamilyTree, index: TreeIndex, ids: Id[]): Map<I
   return gen;
 }
 
+/**
+ * Partners in the order `order` that stand the wrong way round: a man left of
+ * the woman next to him. Couples stand wife on the left, husband on the right;
+ * someone with several partners has them on both sides, so a chain may keep one.
+ */
+function misplaced(tree: FamilyTree, order: Id[]): number {
+  let n = 0;
+  for (let i = 1; i < order.length; i++) {
+    if (tree.persons[order[i - 1]]?.gender === 'male' && tree.persons[order[i]]?.gender === 'female') n++;
+  }
+  return n;
+}
+
+/** Whether turning a partner chain round keeps at least as many couples the right way round. */
+const mayFlip = (tree: FamilyTree, order: Id[], reversed: Id[]) => misplaced(tree, reversed) <= misplaced(tree, order);
+
 function buildBlocks(tree: FamilyTree, index: TreeIndex, ids: Id[], gen: Map<Id, number>) {
   const blocks: Block[] = [];
   const blockOf = new Map<Id, Block>();
@@ -143,6 +159,7 @@ function buildBlocks(tree: FamilyTree, index: TreeIndex, ids: Id[], gen: Map<Id,
       members.push(cur);
       stack.push(...samePartners(cur).reverse());
     }
+    if (misplaced(tree, [...members].reverse()) < misplaced(tree, members)) members.reverse();
     const block: Block = {
       members,
       gen: gen.get(id)!,
@@ -362,7 +379,7 @@ function reduceCrossings(
           return c;
         }, 0);
       const reversed = [...b.members].reverse();
-      if (cost(reversed) < cost(b.members)) b.members = reversed;
+      if (mayFlip(tree, b.members, reversed) && cost(reversed) < cost(b.members)) b.members = reversed;
     }
     let carry = -1;
     const keys = new Map<Block, number>();
@@ -549,7 +566,10 @@ function reduceCrossings(
         if (b.members.length < 2) continue;
         const reversed = [...b.members].reverse();
         const local = (order: Id[]) => (m: Id) => order.indexOf(m);
-        if (internalCrossings(edgesOf(b, local(reversed))) < internalCrossings(edgesOf(b, local(b.members)))) {
+        if (
+          mayFlip(tree, b.members, reversed) &&
+          internalCrossings(edgesOf(b, local(reversed))) < internalCrossings(edgesOf(b, local(b.members)))
+        ) {
           b.members = reversed;
           improved = true;
         }
