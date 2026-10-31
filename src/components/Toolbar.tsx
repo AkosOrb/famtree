@@ -23,7 +23,10 @@ interface Props {
   onError: (message: string) => void;
   viewMode: ViewMode;
   viewDepth: ViewDepth;
-  onView: (mode: ViewMode, depth: ViewDepth) => void;
+  onView: (mode: ViewMode, depth: ViewDepth, family?: string) => void;
+  /** Family names to filter by, the largest first. */
+  families: { name: string; count: number }[];
+  family: string | null;
   is3d: boolean;
   onToggle3d: () => void;
   storiesOpen: boolean;
@@ -63,6 +66,8 @@ export function Toolbar(props: Props) {
     viewMode,
     viewDepth,
     onView,
+    families,
+    family,
     is3d,
     onToggle3d,
     storiesOpen,
@@ -138,12 +143,27 @@ export function Toolbar(props: Props) {
           title="Mit mutasson a fa a kijelölt személyből kiindulva"
         >
           <option value="all">Teljes fa</option>
+          <option value="family">Család</option>
           <option value="around">Kijelölt körül</option>
           <option value="ancestors">Felmenők</option>
           <option value="descendants">Utódok</option>
           <option value="hourglass">Felmenők és utódok</option>
         </select>
-        {viewMode !== 'all' && (
+        {viewMode === 'family' && (
+          <select
+            value={family ?? ''}
+            onChange={(e) => onView('family', viewDepth, e.target.value)}
+            aria-label="Család"
+            title="A család tagjai és akik beházasodtak"
+          >
+            {families.map((f) => (
+              <option key={f.name} value={f.name}>
+                {f.name} család ({f.count})
+              </option>
+            ))}
+          </select>
+        )}
+        {viewMode !== 'all' && viewMode !== 'family' && (
           <select
             value={viewDepth}
             onChange={(e) => onView(viewMode, Number(e.target.value) as ViewDepth)}

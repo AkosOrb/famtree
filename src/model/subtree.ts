@@ -92,12 +92,38 @@ function buildView(tree: FamilyTree, include: Set<Id>, relatives: (id: Id) => Id
     const children = u.children.filter((c) => include.has(c));
     if (partners.length === 1 && !children.length) continue;
     unions[u.id] =
-      partners.length === u.partners.length && children.length === u.children.length
-        ? u
-        : { ...u, partners, children };
+      partners.length === u.partners.length && children.length === u.children.length ? u : { ...u, partners, children };
   }
 
   const truncated = new Set<Id>();
   for (const id of include) if (relatives(id).some((r) => !include.has(r))) truncated.add(id);
   return { tree: { ...tree, persons, unions }, truncated };
+}
+
+/** Family names in the tree with how many people bear each, the largest family first. */
+export function familyNames(tree: FamilyTree): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const p of Object.values(tree.persons)) {
+    const name = p.lastName.trim();
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'hu'));
+}
+
+/**
+ * One family: everyone who bears the family name, and their partners, who
+ * married into the family. Relatives outside it (the in-laws' parents, the
+ * children of daughters who took another name) are hidden and flagged.
+ */
+export function familySubtree(tree: FamilyTree, index: TreeIndex, name: string): FocusView {
+  const include = new Set<Id>();
+  for (const p of Object.values(tree.persons)) if (p.lastName.trim() === name) include.add(p.id);
+  for (const id of [...include]) partnersOf(tree, index, id).forEach((p) => include.add(p));
+  return buildView(tree, include, (id) => [
+    ...parentsOf(tree, index, id),
+    ...partnersOf(tree, index, id),
+    ...childrenOf(tree, index, id),
+  ]);
 }

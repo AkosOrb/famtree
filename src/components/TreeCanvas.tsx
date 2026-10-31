@@ -245,7 +245,7 @@ export function TreeCanvas(props: Props) {
       )}
       {selectedId && <LinkLegend links={links} />}
       <div className="status">
-        {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható
+        {count < Object.keys(tree.persons).length ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható
         · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
       </div>
     </div>
