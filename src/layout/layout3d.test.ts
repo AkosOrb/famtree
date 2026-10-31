@@ -4,12 +4,12 @@ import { computeLayout, NODE_W } from './layout';
 import { assignLayers, computeLayout3D, LAYER_GAP, MIN_RADIUS } from './layout3d';
 
 describe('3D layout', () => {
-  it('keeps everyone on the cylinder, older generations higher', () => {
+  it('keeps everyone, partners included, on one surface, older generations higher', () => {
     const l = computeLayout(inLawTree());
     const l3 = computeLayout3D(l);
     expect(l3.persons.size).toBe(l.persons.size);
     for (const p of l3.persons.values()) {
-      expect(Math.hypot(p.x, p.z)).toBeCloseTo(l3.radius + p.layer * LAYER_GAP, 6);
+      expect(Math.hypot(p.x, p.z)).toBeCloseTo(l3.radius, 6);
     }
     const byGen = new Map<number, number>();
     for (const p of l3.persons.values()) byGen.set(p.gen, p.y);
