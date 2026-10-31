@@ -166,13 +166,17 @@ export default function TreeCanvas3D(props: Props) {
       if (controls.update() || dirty) {
         dirty = false;
         // Fog fades the far side of the cylinder so the near side stays readable.
-        const { radius: r, wrapped } = live.current.layout3d;
-        const fromAxis = Math.hypot(camera.position.x, camera.position.z);
+        const { outerRadius: r, wrapped, height } = live.current.layout3d;
+        // Distance from the camera to the nearest point of the column.
+        const nearest = Math.hypot(
+          Math.max(0, Math.hypot(camera.position.x, camera.position.z) - r),
+          Math.max(0, Math.abs(camera.position.y) - height / 2),
+        );
         if (scene.fog instanceof THREE.Fog && !wrapped) {
           scene.fog.near = scene.fog.far = 1e9;
         } else if (scene.fog instanceof THREE.Fog) {
-          scene.fog.near = Math.max(0, fromAxis - r) + r * 0.6;
-          scene.fog.far = fromAxis + r * 1.2;
+          scene.fog.near = nearest + r * 0.6;
+          scene.fog.far = nearest + r * 2.2;
         }
         renderer.render(scene, camera);
         updateLabels();
@@ -271,7 +275,7 @@ export default function TreeCanvas3D(props: Props) {
     s.scene.fog = new THREE.Fog(bg, 1, 2);
     s.controls.maxDistance = layout3d.radius * 6 + 20000;
     // Zooming towards the axis of a wrapped tree stops just outside its cards.
-    s.controls.minDistance = layout3d.wrapped ? layout3d.radius + NODE_W : 100;
+    s.controls.minDistance = layout3d.wrapped ? layout3d.outerRadius + NODE_W : 100;
 
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.BufferAttribute(layout3d.edges, 3));
@@ -382,7 +386,7 @@ export default function TreeCanvas3D(props: Props) {
   const lookFrom = (angle: number, cy: number, dist: number, instant = false) => {
     const s = sceneRef.current;
     if (!s) return;
-    const reach = layout3d.radius + dist;
+    const reach = layout3d.outerRadius + dist;
     // A wrapped tree turns around the cylinder axis like a column; a partial arc around its own middle.
     const pivot = layout3d.wrapped ? 0 : layout3d.radius;
     const target = new THREE.Vector3(Math.sin(angle) * pivot, cy, Math.cos(angle) * pivot);
