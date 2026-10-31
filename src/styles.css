@@ -12,6 +12,10 @@
   --female: #c0507a;
   --other: #8a6bbf;
   --unknown: #9b978c;
+  /* Connection lines of the selected person (2D and 3D views). */
+  --link-parent: #2f7fd1;
+  --link-partner: #d9822b;
+  --link-child: #2e9e62;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
   color-scheme: light;
   font-family:
@@ -1058,4 +1062,70 @@ button.link {
 .canvas-3d .rotate-3d {
   flex-direction: row;
   flex: none;
+}
+
+/* The selected person's connections (TreeCanvas, TreeCanvas3D). */
+.link-edge {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.link-edge.link-parent {
+  stroke: var(--link-parent);
+}
+
+.link-edge.link-partner {
+  stroke: var(--link-partner);
+}
+
+.link-edge.link-child {
+  stroke: var(--link-child);
+}
+
+.link-legend {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  pointer-events: none;
+}
+
+.link-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.link-legend .swatch {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.swatch.link-parent {
+  background: var(--link-parent);
+}
+
+.swatch.link-partner {
+  background: var(--link-partner);
+}
+
+.swatch.link-child {
+  background: var(--link-child);
+}
+
+/* Above the status line, whose hint is longer in 3D. */
+.canvas-3d .link-legend {
+  bottom: 44px;
 }

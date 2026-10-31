@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import type { Focus } from '../App';
 import { NODE_H, NODE_W, type Layout } from '../layout/layout';
 import { computeLayout3D, type Person3D } from '../layout/layout3d';
+import { directLinks } from '../layout/links';
+import { LinkLegend } from './LinkLegend';
 import type { PathStep } from '../model/relationship';
 import { fullName, type FamilyTree, type Id, type Person } from '../model/types';
 
@@ -36,7 +41,10 @@ interface Scene {
   controls: OrbitControls;
   root: THREE.Group;
   cards?: THREE.InstancedMesh;
+  edges?: THREE.LineSegments;
   ids: Id[];
+  /** Wide-line materials, which need the canvas size to draw their width in pixels. */
+  wide: Set<LineMaterial>;
   render: () => void;
 }
 
@@ -192,6 +200,7 @@ export default function TreeCanvas3D(props: Props) {
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      sceneRef.current?.wide.forEach((m) => m.resolution.set(w, h));
       render();
     };
     const observer = new ResizeObserver(resize);
@@ -230,7 +239,7 @@ export default function TreeCanvas3D(props: Props) {
     el.addEventListener('pointerup', onUp);
     el.addEventListener('dblclick', onDouble);
 
-    sceneRef.current = { renderer, scene, camera, controls, root, ids: [], render };
+    sceneRef.current = { renderer, scene, camera, controls, root, ids: [], wide: new Set(), render };
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -279,7 +288,11 @@ export default function TreeCanvas3D(props: Props) {
 
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.BufferAttribute(layout3d.edges, 3));
-    s.root.add(new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: css(host, '--edge') })));
+    s.edges = new THREE.LineSegments(
+      lineGeo,
+      new THREE.LineBasicMaterial({ color: css(host, '--edge'), transparent: true }),
+    );
+    s.root.add(s.edges);
 
     const ids = [...layout3d.persons.keys()];
     const cards = new THREE.InstancedMesh(
@@ -327,35 +340,54 @@ export default function TreeCanvas3D(props: Props) {
       s.cards!.setColorAt(i, c);
     });
     if (s.cards.instanceColor) s.cards.instanceColor.needsUpdate = true;
+    // Other lines step back while a path or group is shown.
+    if (s.edges) (s.edges.material as THREE.LineBasicMaterial).opacity = marked ? 0.3 : 1;
     s.render();
   }, [tree, layout3d, selectedId, focusRoot, marked]);
 
-  // Relationship path: a bright line through the people on it.
+  const links = useMemo(() => (selectedId ? directLinks(layout, selectedId) : []), [layout, selectedId]);
+
+  // Connections drawn as wide coloured lines along the tree's own lines: the relationship
+  // path, and the selected person's parents, partners and children.
   useEffect(() => {
     const s = sceneRef.current;
-    if (!s || !path || path.length < 2) return;
-    const pts: number[] = [];
-    for (let i = 1; i < path.length; i++) {
-      const a = layout3d.persons.get(path[i - 1].id);
-      const b = layout3d.persons.get(path[i].id);
-      if (a && b) pts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    if (!s) return;
+    const host = hostRef.current!;
+    const groups: { points: number[]; color: string; width: number }[] = [];
+    const byRelation = { parent: [] as number[], partner: [] as number[], child: [] as number[] };
+    if (selectedId) for (const l of links) byRelation[l.relation].push(...layout3d.link(selectedId, l.id, l.relation));
+    for (const r of ['parent', 'partner', 'child'] as const) {
+      groups.push({ points: byRelation[r], color: css(host, `--link-${r}`), width: 4 });
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
-    const line = new THREE.LineSegments(
-      geo,
-      new THREE.LineBasicMaterial({ color: css(hostRef.current!, '--accent'), depthTest: false }),
-    );
-    line.renderOrder = 1;
-    s.root.add(line);
+    if (path && path.length > 1) {
+      const points: number[] = [];
+      for (let i = 1; i < path.length; i++)
+        points.push(...layout3d.link(path[i - 1].id, path[i].id, path[i].relation!));
+      groups.push({ points, color: css(host, '--accent'), width: 6 });
+    }
+    const added: LineSegments2[] = [];
+    for (const g of groups) {
+      if (!g.points.length) continue;
+      const geo = new LineSegmentsGeometry().setPositions(g.points);
+      const mat = new LineMaterial({ color: g.color, linewidth: g.width, worldUnits: false });
+      mat.resolution.set(host.clientWidth, host.clientHeight);
+      const line = new LineSegments2(geo, mat);
+      line.renderOrder = 1;
+      s.root.add(line);
+      s.wide.add(mat);
+      added.push(line);
+    }
     s.render();
     return () => {
-      s.root.remove(line);
-      geo.dispose();
-      (line.material as THREE.Material).dispose();
+      for (const line of added) {
+        s.root.remove(line);
+        line.geometry.dispose();
+        line.material.dispose();
+        s.wide.delete(line.material);
+      }
       s.render();
     };
-  }, [path, layout3d]);
+  }, [path, links, selectedId, layout3d]);
 
   /** Moves the camera smoothly so it looks at `target` from `eye`. */
   const flyTo = (target: THREE.Vector3, eye: THREE.Vector3) => {
@@ -482,6 +514,7 @@ export default function TreeCanvas3D(props: Props) {
         {focusRoot ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · 3D
         <span className="hint-3d"> · húzás: forgatás · görgő: nagyítás · jobb gomb: mozgatás</span>
       </div>
+      {selectedId && <LinkLegend links={links} />}
       <label className="rotate-3d">
         <input type="checkbox" checked={autoRotate} onChange={(e) => setAutoRotate(e.target.checked)} />
         Forgatás

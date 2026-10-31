@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateTree, inLawTree } from '../model/sample';
 import { computeLayout, NODE_W } from './layout';
 import type { Id } from '../model/types';
+import { directLinks } from './links';
 import { assignLayers, computeLayout3D, LAYER_GAP, MIN_RADIUS } from './layout3d';
 
 describe('3D layout', () => {
@@ -71,5 +72,20 @@ describe('3D layout', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(100);
+  });
+
+  it('traces the lines between a person and each direct relative', () => {
+    const layout = computeLayout(inLawTree());
+    const l3 = computeLayout3D(layout);
+    let checked = 0;
+    for (const id of layout.persons.keys()) {
+      for (const l of directLinks(layout, id)) {
+        const pts = l3.link(id, l.id, l.relation);
+        expect(pts.length).toBeGreaterThan(0);
+        expect(pts.length % 6).toBe(0);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
   });
 });
