@@ -30,7 +30,7 @@ interface Props {
 /** Most name labels drawn at once; the nearest people get them. */
 const MAX_LABELS = 250;
 /** Cards narrower than this on screen get no label. */
-const MIN_LABEL_PX = 60;
+const MIN_LABEL_PX = 50;
 const FOV = 45;
 const CARD_DEPTH = 14;
 
@@ -174,7 +174,9 @@ export default function TreeCanvas3D(props: Props) {
       if (controls.update() || dirty) {
         dirty = false;
         // Fog fades the far side of the cylinder so the near side stays readable.
-        const { outerRadius: r, wrapped, height } = live.current.layout3d;
+        const { outerRadius: r, wrapped, height, shellRadius } = live.current.layout3d;
+        // Zooming towards the axis of a wrapped tree stops just outside the generation looked at.
+        if (wrapped) controls.minDistance = shellRadius(controls.target.y) + NODE_W;
         // Distance from the camera to the nearest point of the column.
         const nearest = Math.hypot(
           Math.max(0, Math.hypot(camera.position.x, camera.position.z) - r),
@@ -282,9 +284,8 @@ export default function TreeCanvas3D(props: Props) {
     const bg = new THREE.Color(css(host, '--bg'));
     s.scene.background = bg;
     s.scene.fog = new THREE.Fog(bg, 1, 2);
-    s.controls.maxDistance = layout3d.radius * 6 + 20000;
-    // Zooming towards the axis of a wrapped tree stops just outside its cards.
-    s.controls.minDistance = layout3d.wrapped ? layout3d.outerRadius + NODE_W : 100;
+    s.controls.maxDistance = layout3d.outerRadius * 6 + 20000;
+    if (!layout3d.wrapped) s.controls.minDistance = 100;
 
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.BufferAttribute(layout3d.edges, 3));
@@ -415,12 +416,19 @@ export default function TreeCanvas3D(props: Props) {
   };
 
   /** Points the camera at the cylinder axis from outside, facing `angle`. */
-  const lookFrom = (angle: number, cy: number, dist: number, instant = false) => {
+  const lookFrom = (
+    angle: number,
+    cy: number,
+    dist: number,
+    instant = false,
+    surface = layout3d.shellRadius(cy),
+    middle = surface,
+  ) => {
     const s = sceneRef.current;
     if (!s) return;
-    const reach = layout3d.outerRadius + dist;
+    const reach = surface + dist;
     // A wrapped tree turns around the cylinder axis like a column; a partial arc around its own middle.
-    const pivot = layout3d.wrapped ? 0 : layout3d.radius;
+    const pivot = layout3d.wrapped ? 0 : middle;
     const target = new THREE.Vector3(Math.sin(angle) * pivot, cy, Math.cos(angle) * pivot);
     const eye = new THREE.Vector3(Math.sin(angle) * reach, cy + dist * 0.12, Math.cos(angle) * reach);
     if (instant) {
@@ -440,10 +448,13 @@ export default function TreeCanvas3D(props: Props) {
     const spread = Math.max(
       ...people.map((p) => Math.abs(Math.atan2(Math.sin(p.angle - angle), Math.cos(p.angle - angle)))),
     );
-    const r = layout3d.radius;
+    // Generations stand on cylinders of different widths: frame the widest one shown.
+    const radii = people.map((p) => Math.hypot(p.x, p.z));
+    const r = Math.max(...radii);
+    const middle = radii.reduce((a, b) => a + b, 0) / radii.length;
     const w = Math.max(2 * r * Math.sin(Math.min(spread, Math.PI / 2)) + NODE_W * 2, NODE_W * 5);
     const h = Math.max(Math.max(...ys) - Math.min(...ys) + NODE_H * 3, NODE_H * 8);
-    lookFrom(angle, (Math.max(...ys) + Math.min(...ys)) / 2, fitDistance(w, h), instant);
+    lookFrom(angle, (Math.max(...ys) + Math.min(...ys)) / 2, fitDistance(w, h), instant, r, middle);
   };
 
   // Whole tree on first show and whenever requested.
@@ -453,7 +464,7 @@ export default function TreeCanvas3D(props: Props) {
     if (!s || fittedFor.current === fitNonce) return;
     const first = fittedFor.current === -1;
     fittedFor.current = fitNonce;
-    const r = layout3d.radius;
+    const r = layout3d.outerRadius;
     const all = [...layout3d.persons.values()];
     if (!all.length) return lookFrom(0, 0, 1500, first);
     if (!layout3d.wrapped) return fitPeople(all, first);
@@ -461,7 +472,7 @@ export default function TreeCanvas3D(props: Props) {
     const pxPerUnit = s.renderer.domElement.clientHeight / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     if ((NODE_W * pxPerUnit) / (dist + r) >= 6) {
       // Wrapped all the way round but still legible: the whole column, slightly from above.
-      lookFrom(0, 0, dist, first);
+      lookFrom(0, 0, dist, first, r);
       return;
     }
     // Too wide to show at once: all generations, facing the oldest ones (as the 2D view does).
@@ -470,7 +481,7 @@ export default function TreeCanvas3D(props: Props) {
       roots.reduce((a, p) => a + Math.sin(p.angle), 0),
       roots.reduce((a, p) => a + Math.cos(p.angle), 0),
     );
-    lookFrom(angle, 0, fitDistance(0, layout3d.height + NODE_H * 2), first);
+    lookFrom(angle, 0, fitDistance(0, layout3d.height + NODE_H * 2), first, r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitNonce, layout3d]);
 
