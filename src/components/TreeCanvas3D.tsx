@@ -464,24 +464,26 @@ export default function TreeCanvas3D(props: Props) {
     if (!s || fittedFor.current === fitNonce) return;
     const first = fittedFor.current === -1;
     fittedFor.current = fitNonce;
-    const r = layout3d.outerRadius;
     const all = [...layout3d.persons.values()];
     if (!all.length) return lookFrom(0, 0, 1500, first);
-    if (!layout3d.wrapped) return fitPeople(all, first);
-    const dist = fitDistance(2 * r, layout3d.height);
+    // The default view is the innermost cylinder: the oldest generation, at the top of the tower.
+    const roots = all.filter((p) => p.gen === 0);
+    if (!layout3d.wrapped) return fitPeople(roots, first);
+    const cy = roots[0].y;
+    const r = Math.max(...roots.map((p) => Math.hypot(p.x, p.z)));
+    const dist = fitDistance(2 * r, NODE_H * 8);
     const pxPerUnit = s.renderer.domElement.clientHeight / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     if ((NODE_W * pxPerUnit) / (dist + r) >= 6) {
-      // Wrapped all the way round but still legible: the whole column, slightly from above.
-      lookFrom(0, 0, dist, first, r);
+      // The whole innermost ring, slightly from above.
+      lookFrom(0, cy, dist, first, r);
       return;
     }
-    // Too wide to show at once: all generations, facing the oldest ones (as the 2D view does).
-    const roots = all.filter((p) => p.gen === 0);
+    // Too wide to show at once: face the middle of the oldest generation.
     const angle = Math.atan2(
       roots.reduce((a, p) => a + Math.sin(p.angle), 0),
       roots.reduce((a, p) => a + Math.cos(p.angle), 0),
     );
-    lookFrom(angle, 0, fitDistance(0, layout3d.height + NODE_H * 2), first, r);
+    lookFrom(angle, cy, fitDistance(0, NODE_H * 10), first, r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitNonce, layout3d]);
 
