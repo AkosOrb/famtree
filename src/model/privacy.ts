@@ -1,4 +1,4 @@
-import type { FamilyTree, Id, Person } from './types';
+import { storiesOf, type FamilyTree, type Id, type Person, type Story } from './types';
 
 /**
  * What read-only (view link) visitors may see. Editors and the owner always
@@ -31,8 +31,11 @@ export const isLiving = (p: Person, year = new Date().getFullYear()) =>
   p.deathYear == null && (p.birthYear == null || year - p.birthYear < LIVING_YEARS);
 
 /** The version of a person a view-link visitor receives. Keeps the id so relationships still draw. */
+const isHidden = (p: Person, settings: PrivacySettings, year: number) =>
+  !!p.private || (settings.hideLiving && isLiving(p, year));
+
 export function redactPerson(p: Person, settings: PrivacySettings, year = new Date().getFullYear()): Person {
-  if (p.private || (settings.hideLiving && isLiving(p, year))) {
+  if (isHidden(p, settings, year)) {
     return { id: p.id, firstName: '', lastName: REDACTED_NAME, gender: 'unknown', redacted: true };
   }
   if (!(settings.hidePhotos && p.photo) && !(settings.hideNotes && p.notes)) return p;
@@ -42,9 +45,27 @@ export function redactPerson(p: Person, settings: PrivacySettings, year = new Da
   return copy;
 }
 
+/**
+ * Whether a view-link visitor may read a story. Stories are free text like
+ * notes, and may tell about the hidden people they mention, so a story is
+ * withheld if it is private, notes are hidden, or any of its members is hidden.
+ * `persons` must be the unredacted records.
+ */
+export function storyVisible(
+  s: Story,
+  persons: Record<Id, Person>,
+  settings: PrivacySettings,
+  year = new Date().getFullYear(),
+): boolean {
+  if (s.private || settings.hideNotes) return false;
+  return s.members.every((m) => !persons[m] || !isHidden(persons[m], settings, year));
+}
+
 export function redactTree(tree: FamilyTree, settings: PrivacySettings): FamilyTree {
   const year = new Date().getFullYear();
   const persons: Record<Id, Person> = {};
   for (const p of Object.values(tree.persons)) persons[p.id] = redactPerson(p, settings, year);
-  return { ...tree, persons };
+  const stories: FamilyTree['stories'] = {};
+  for (const s of Object.values(storiesOf(tree))) if (storyVisible(s, tree.persons, settings, year)) stories[s.id] = s;
+  return { ...tree, persons, stories };
 }

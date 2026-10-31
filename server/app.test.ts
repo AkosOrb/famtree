@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
-import { updatePerson } from '../src/model/operations';
-import { sampleTree } from '../src/model/sample';
+import { addStory, updatePerson } from '../src/model/operations';
+import { inLawTree, sampleTree } from '../src/model/sample';
 import { applyChanges, diffTrees } from '../src/sync/changes';
 import { REDACTED_NAME } from '../src/model/privacy';
 import { createApp } from './app';
@@ -228,6 +228,33 @@ describe('API', () => {
       gender: 'unknown',
       redacted: true,
     });
+  });
+
+  it('stores and syncs stories, hiding the ones about hidden people from view links', async () => {
+    const app = setup();
+    const tree = inLawTree();
+    const { id, editKey, viewKey } = (await request(app).post('/api/trees').send({ name: 'X', tree }).expect(201)).body;
+    const edit = `Bearer ${editKey}`;
+    const view = `Bearer ${viewKey}`;
+    const loaded = (await request(app).get(`/api/trees/${id}`).set('Authorization', edit)).body.tree;
+    expect(Object.keys(loaded.stories)).toHaveLength(2);
+    // The house story names the living István, so view links only get the wedding.
+    const viewed = (await request(app).get(`/api/trees/${id}`).set('Authorization', view)).body.tree;
+    expect(Object.values(viewed.stories).map((s) => (s as { title: string }).title)).toEqual([
+      'János és Mária esküvője',
+    ]);
+
+    const gabor = personNamed(loaded, 'Gábor')!.id;
+    const janos = personNamed(loaded, 'János')!.id;
+    const [withStories] = addStory(tree, { title: 'Titok', text: 'x', members: [gabor] });
+    const [withMore] = addStory(withStories, { title: 'Régi', text: 'y', members: [janos] });
+    const changes = diffTrees(tree, withMore);
+    await request(app).post(`/api/trees/${id}/changes`).set('Authorization', edit).send({ baseVersion: 1, changes });
+    const asEditor = (await request(app).get(`/api/trees/${id}/changes?since=1`).set('Authorization', edit)).body;
+    expect(asEditor.changes.filter((c: { value: unknown }) => c.value)).toHaveLength(2);
+    const asViewer = (await request(app).get(`/api/trees/${id}/changes?since=1`).set('Authorization', view)).body;
+    const titles = asViewer.changes.map((c: { value: { title: string } | null }) => c.value?.title ?? null).sort();
+    expect(titles).toEqual([null, 'Régi'].sort());
   });
 
   it('lets editors of an unowned tree set privacy', async () => {

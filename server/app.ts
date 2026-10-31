@@ -1,5 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { isPrivacySettings, redactPerson, redactTree } from '../src/model/privacy';
+import { isPrivacySettings, redactPerson, redactTree, storyVisible } from '../src/model/privacy';
 import { isValidChange, isValidTree, sanitizeChange, sanitizeTree, type Change } from '../src/sync/changes';
 import { rateLimiter, sameOrigin, securityHeaders } from './security';
 import type { Role, TreeStore } from './store';
@@ -181,9 +181,15 @@ export function createApp(trees: TreeStore, users: UserStore) {
     if (req.role !== 'viewer') return res.json(result);
     const privacy = trees.privacy(req.params.id);
     const year = new Date().getFullYear();
-    const changes = result.changes.map(
-      (c): Change => (c.kind === 'person' && c.value ? { ...c, value: redactPerson(c.value, privacy, year) } : c),
-    );
+    // Story visibility depends on its members' current (unredacted) records.
+    const persons = result.changes.some((c) => c.kind === 'story' && c.value)
+      ? trees.load(req.params.id).tree.persons
+      : {};
+    const changes = result.changes.map((c): Change => {
+      if (c.kind === 'person' && c.value) return { ...c, value: redactPerson(c.value, privacy, year) };
+      if (c.kind === 'story' && c.value && !storyVisible(c.value, persons, privacy, year)) return { ...c, value: null };
+      return c;
+    });
     res.json({ version: result.version, changes });
   });
 

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { ViewDepth } from '../App';
+import type { ViewDepth, ViewMode } from '../App';
 import { exportGedcom, importGedcom } from '../model/gedcom';
 import type { User } from '../sync/api';
 import type { SyncStatus } from '../sync/useServerSync';
@@ -21,8 +21,11 @@ interface Props {
   onReplace: (tree: FamilyTree) => void;
   onFit: () => void;
   onError: (message: string) => void;
+  viewMode: ViewMode;
   viewDepth: ViewDepth;
-  onViewDepth: (depth: ViewDepth) => void;
+  onView: (mode: ViewMode, depth: ViewDepth) => void;
+  storiesOpen: boolean;
+  onStories: () => void;
   readOnly: boolean;
   treeName?: string;
   syncStatus: SyncStatus | 'local' | 'loading' | 'readonly';
@@ -54,7 +57,7 @@ function download(content: string, type: string, filename: string) {
 
 export function Toolbar(props: Props) {
   const { tree, canUndo, canRedo, onUndo, onRedo, onAddPerson, onSelect, onReplace, onFit, onError } = props;
-  const { viewDepth, onViewDepth, readOnly, treeName, syncStatus, onShare, user, onAccount, onPrivacy } = props;
+  const { viewMode, viewDepth, onView, storiesOpen, onStories, readOnly, treeName, syncStatus, onShare, user, onAccount, onPrivacy } = props;
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportAs = (format: string) => {
@@ -111,12 +114,33 @@ export function Toolbar(props: Props) {
         <button onClick={onFit} title="Teljes fa megjelenítése">
           Igazítás
         </button>
-        <select value={viewDepth} onChange={(e) => onViewDepth(Number(e.target.value) as ViewDepth)} aria-label="Nézet">
-          <option value={0}>Teljes fa</option>
-          <option value={2}>Kijelölt körül: ±2 generáció</option>
-          <option value={3}>Kijelölt körül: ±3 generáció</option>
-          <option value={5}>Kijelölt körül: ±5 generáció</option>
+        <select
+          value={viewMode}
+          onChange={(e) => onView(e.target.value as ViewMode, viewDepth)}
+          aria-label="Nézet"
+          title="Mit mutasson a fa a kijelölt személyből kiindulva"
+        >
+          <option value="all">Teljes fa</option>
+          <option value="around">Kijelölt körül</option>
+          <option value="ancestors">Felmenők</option>
+          <option value="descendants">Utódok</option>
+          <option value="hourglass">Felmenők és utódok</option>
         </select>
+        {viewMode !== 'all' && (
+          <select
+            value={viewDepth}
+            onChange={(e) => onView(viewMode, Number(e.target.value) as ViewDepth)}
+            aria-label="Generációk száma"
+          >
+            <option value={2}>{viewMode === 'around' ? '±' : ''}2 generáció</option>
+            <option value={3}>{viewMode === 'around' ? '±' : ''}3 generáció</option>
+            <option value={5}>{viewMode === 'around' ? '±' : ''}5 generáció</option>
+            <option value={0}>Összes generáció</option>
+          </select>
+        )}
+        <button className={storiesOpen ? 'active' : undefined} onClick={onStories} aria-pressed={storiesOpen}>
+          Történetek
+        </button>
         <select value="" onChange={(e) => exportAs(e.target.value)} aria-label="Exportálás">
           <option value="">Exportálás…</option>
           <option value="json">JSON</option>

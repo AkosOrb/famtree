@@ -16,6 +16,8 @@ interface Props {
   onFocusOn: (id: Id) => void;
   /** Relationship path to highlight (see model/relationship.ts). */
   path: PathStep[] | null;
+  /** Persons to emphasise (e.g. the members of a family history card); others are dimmed. */
+  highlight?: Set<Id> | null;
   selectedId: Id | null;
   focus: Focus | null;
   fitNonce: number;
@@ -30,8 +32,9 @@ const MIN_FIT_ZOOM = 0.03;
 const AVATAR = 40;
 
 export function TreeCanvas(props: Props) {
-  const { tree, layout, truncated, focusRoot, onFocusOn, path, selectedId, focus, fitNonce, onSelect, onAddFirst } =
+  const { tree, layout, truncated, focusRoot, onFocusOn, path, highlight, selectedId, focus, fitNonce, onSelect } =
     props;
+  const { onAddFirst } = props;
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
@@ -123,13 +126,8 @@ export function TreeCanvas(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, size.width > 0]);
 
-  // Zoom to a newly shown path so both ends are visible.
-  const fittedPath = useRef<PathStep[] | null>(null);
-  useEffect(() => {
-    if (!path || !size.width || fittedPath.current === path) return;
-    const boxes = path.map((s) => layout.persons.get(s.id)).filter((b): b is PersonBox => !!b);
-    if (boxes.length !== path.length) return;
-    fittedPath.current = path;
+  /** Zooms so that all given boxes are visible. */
+  const fitBoxes = (boxes: PersonBox[]) => {
     const minX = Math.min(...boxes.map((b) => b.x)) - NODE_W / 2;
     const maxX = Math.max(...boxes.map((b) => b.x)) + NODE_W / 2;
     const minY = Math.min(...boxes.map((b) => b.y));
@@ -140,10 +138,32 @@ export function TreeCanvas(props: Props) {
         .translate(size.width / 2 - (k * (minX + maxX)) / 2, size.height / 2 + 40 - (k * (minY + maxY)) / 2)
         .scale(k),
     );
+  };
+
+  // Zoom to a newly shown path so both ends are visible.
+  const fittedPath = useRef<PathStep[] | null>(null);
+  useEffect(() => {
+    if (!path || !size.width || fittedPath.current === path) return;
+    const boxes = path.map((s) => layout.persons.get(s.id)).filter((b): b is PersonBox => !!b);
+    if (boxes.length !== path.length) return;
+    fittedPath.current = path;
+    fitBoxes(boxes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, layout, size.width > 0]);
 
+  // Zoom to a newly highlighted group once its members are laid out.
+  const fittedHighlight = useRef<Set<Id> | null>(null);
+  useEffect(() => {
+    if (!highlight?.size || !size.width || fittedHighlight.current === highlight) return;
+    const boxes = [...highlight].map((id) => layout.persons.get(id)).filter((b): b is PersonBox => !!b);
+    if (boxes.length !== highlight.size) return;
+    fittedHighlight.current = highlight;
+    fitBoxes(boxes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlight, layout, size.width > 0]);
+
   const pathIds = useMemo(() => new Set(path?.map((s) => s.id)), [path]);
+  const marked = path ? pathIds : highlight?.size ? highlight : null;
   const pathD = useMemo(() => (path ? pathGeometry(path, layout) : ''), [path, layout]);
 
   const grids = useMemo(() => {
@@ -176,7 +196,7 @@ export function TreeCanvas(props: Props) {
           </clipPath>
         </defs>
         <g transform={transform.toString()}>
-          <g className={`edges${path ? ' dimmed' : ''}`}>
+          <g className={`edges${marked ? ' dimmed' : ''}`}>
             {visibleUnions.map((u) => (
               <UnionEdges key={u.id} union={u} layout={layout} />
             ))}
@@ -192,7 +212,7 @@ export function TreeCanvas(props: Props) {
                 detailed={detailed}
                 truncated={truncated.has(box.id)}
                 isFocusRoot={box.id === focusRoot}
-                pathState={path ? (pathIds.has(box.id) ? 'on' : 'off') : undefined}
+                pathState={marked ? (marked.has(box.id) ? 'on' : 'off') : undefined}
                 onSelect={onSelect}
                 onFocusOn={onFocusOn}
               />
