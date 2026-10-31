@@ -48,6 +48,8 @@ export interface Layout3D {
 
 /** Below this radius a tree is not wrapped into a full circle. */
 export const MIN_RADIUS = 1200;
+/** Vertical stretch of the generations, so the stepped tower rises steeply. */
+export const Y_SCALE = 2.2;
 /** Room between the outermost layer of one generation's cylinder and the innermost of the next. */
 const GEN_GAP = 200;
 /** Distance between two depth layers. */
@@ -139,7 +141,7 @@ export function assignLayers(layout: Layout): { persons: Map<Id, number>; unions
 export function computeLayout3D(layout: Layout): Layout3D {
   const { bounds } = layout;
   const width = bounds.maxX - bounds.minX + NODE_W;
-  const height = bounds.maxY - bounds.minY + NODE_H;
+  const height = (bounds.maxY - bounds.minY + NODE_H) * Y_SCALE;
   const layers = assignLayers(layout);
   const minLayer = Math.min(0, ...layers.unions.values(), ...layers.persons.values());
   const maxLayer = Math.max(0, ...layers.unions.values(), ...layers.persons.values());
@@ -163,7 +165,7 @@ export function computeLayout3D(layout: Layout): Layout3D {
   const angleOf = (x: number) => (x - midX) / radius;
   const at = (x: number, y: number, r: number): Point3 => {
     const a = angleOf(x);
-    return { x: r * Math.sin(a), y: midY - y, z: r * Math.cos(a) };
+    return { x: r * Math.sin(a), y: (midY - y) * Y_SCALE, z: r * Math.cos(a) };
   };
 
   const persons = new Map<Id, Person3D>();
@@ -257,7 +259,7 @@ export function computeLayout3D(layout: Layout): Layout3D {
     genStep,
     outerRadius: radiusOf(maxLayer, maxGen),
     shellRadius: (y: number) =>
-      radiusOf(maxLayer, Math.min(maxGen, Math.max(0, Math.round((midY - y - NODE_H / 2) / ROW_H)))),
+      radiusOf(maxLayer, Math.min(maxGen, Math.max(0, Math.round((midY - y / Y_SCALE - NODE_H / 2) / ROW_H)))),
     height,
     wrapped: maxAngle > Math.PI / 2,
   };

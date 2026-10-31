@@ -128,7 +128,7 @@ export function Toolbar(props: Props) {
             </button>
           </>
         )}
-        <button onClick={onFit} title="Teljes fa megjelenítése">
+        <button onClick={onFit} title={is3d ? 'Vissza a kezdőnézetre: a legbelső kör' : 'Teljes fa megjelenítése'}>
           Igazítás
         </button>
         <select
