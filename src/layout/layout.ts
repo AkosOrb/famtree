@@ -61,16 +61,26 @@ interface Block {
   gen: number;
   x: number; // left edge
   width: number;
+  /** Place of the block's family from left to right (see computeLayout's `sides`). */
+  side: number;
+  /** Partners from different families: kept each on their own family's side, never turned round. */
+  pinned: boolean;
 }
 
 const STEP = NODE_W + PARTNER_GAP;
 /** How much more a person's siblings than their parents decide which side of a couple they stand on. */
 const SIBLING_PULL = 2;
 
-export function computeLayout(tree: FamilyTree, index: TreeIndex = buildIndex(tree)): Layout {
+/**
+ * `sides` optionally gives people a family place from left to right (0, 1, …):
+ * every row then keeps the families in that order, and a couple joining two of
+ * them stands between, each partner on their own family's side, so neither
+ * family's relatives reach over to the other side.
+ */
+export function computeLayout(tree: FamilyTree, index: TreeIndex = buildIndex(tree), sides?: Map<Id, number>): Layout {
   const ids = Object.keys(tree.persons);
   const gen = assignGenerations(tree, index, ids);
-  const { blocks, blockOf } = buildBlocks(tree, index, ids, gen);
+  const { blocks, blockOf } = buildBlocks(tree, index, ids, gen, sides);
   const layers = initialOrder(tree, index, ids, gen, blocks, blockOf);
   bestOrdering(tree, index, layers, blockOf);
   assignX(tree, index, layers, blockOf);
@@ -129,7 +139,16 @@ function misplaced(tree: FamilyTree, order: Id[]): number {
 /** Whether turning a partner chain round keeps at least as many couples the right way round. */
 const mayFlip = (tree: FamilyTree, order: Id[], reversed: Id[]) => misplaced(tree, reversed) <= misplaced(tree, order);
 
-function buildBlocks(tree: FamilyTree, index: TreeIndex, ids: Id[], gen: Map<Id, number>) {
+/** Pairs of people standing in the opposite order of their families' sides. */
+function sideInversions(order: Id[], sides: Map<Id, number>): number {
+  let n = 0;
+  for (let i = 0; i < order.length; i++) {
+    for (let j = i + 1; j < order.length; j++) if ((sides.get(order[i]) ?? 0) > (sides.get(order[j]) ?? 0)) n++;
+  }
+  return n;
+}
+
+function buildBlocks(tree: FamilyTree, index: TreeIndex, ids: Id[], gen: Map<Id, number>, sides?: Map<Id, number>) {
   const blocks: Block[] = [];
   const blockOf = new Map<Id, Block>();
   const samePartners = (id: Id) => {
@@ -159,12 +178,20 @@ function buildBlocks(tree: FamilyTree, index: TreeIndex, ids: Id[], gen: Map<Id,
       members.push(cur);
       stack.push(...samePartners(cur).reverse());
     }
-    if (misplaced(tree, [...members].reverse()) < misplaced(tree, members)) members.reverse();
+    const memberSides = members.map((m) => sides?.get(m) ?? 0);
+    const pinned = memberSides.some((v) => v !== memberSides[0]);
+    const reversed = [...members].reverse();
+    if (pinned && sides) {
+      const [kept, turned] = [sideInversions(members, sides), sideInversions(reversed, sides)];
+      if (turned < kept || (turned === kept && misplaced(tree, reversed) < misplaced(tree, members))) members.reverse();
+    } else if (misplaced(tree, reversed) < misplaced(tree, members)) members.reverse();
     const block: Block = {
       members,
       gen: gen.get(id)!,
       x: 0,
       width: members.length * STEP - PARTNER_GAP,
+      side: memberSides.reduce((a, b) => a + b, 0) / members.length,
+      pinned,
     };
     blocks.push(block);
     members.forEach((m) => blockOf.set(m, block));
@@ -379,7 +406,7 @@ function reduceCrossings(
           return c;
         }, 0);
       const reversed = [...b.members].reverse();
-      if (mayFlip(tree, b.members, reversed) && cost(reversed) < cost(b.members)) b.members = reversed;
+      if (!b.pinned && mayFlip(tree, b.members, reversed) && cost(reversed) < cost(b.members)) b.members = reversed;
     }
     let carry = -1;
     const keys = new Map<Block, number>();
@@ -389,7 +416,7 @@ function reduceCrossings(
       // Blocks without neighbours stick to the block before them.
       keys.set(b, carry);
     }
-    layer.sort((a, b) => keys.get(a)! - keys.get(b)! || blockPos.get(a)! - blockPos.get(b)!);
+    layer.sort((a, b) => a.side - b.side || keys.get(a)! - keys.get(b)! || blockPos.get(a)! - blockPos.get(b)!);
     record(layer);
   };
 
@@ -567,6 +594,7 @@ function reduceCrossings(
         const reversed = [...b.members].reverse();
         const local = (order: Id[]) => (m: Id) => order.indexOf(m);
         if (
+          !b.pinned &&
           mayFlip(tree, b.members, reversed) &&
           internalCrossings(edgesOf(b, local(reversed))) < internalCrossings(edgesOf(b, local(b.members)))
         ) {
@@ -576,6 +604,7 @@ function reduceCrossings(
       }
       record(layer);
       for (let i = 0; i + 1 < layer.length; i++) {
+        if (layer[i].side !== layer[i + 1].side) continue;
         const own = (m: Id) => slot.get(m)!;
         const a = edgesOf(layer[i], own);
         const b = edgesOf(layer[i + 1], own);
@@ -601,6 +630,11 @@ function reduceCrossings(
     if (!improved) break;
   }
   for (const layer of layers) keepSiblingsTogether(layer, together);
+  // Families stay on their own sides (a stable sort keeps the order found inside each).
+  for (const layer of layers) {
+    layer.sort((a, b) => a.side - b.side);
+    record(layer);
+  }
 }
 
 const memberCenter = (block: Block, id: Id) => block.x + block.members.indexOf(id) * STEP + NODE_W / 2;

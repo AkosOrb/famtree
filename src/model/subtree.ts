@@ -125,12 +125,19 @@ function familyMembers(tree: FamilyTree, index: TreeIndex, name: string): Set<Id
  * in-laws' parents, the children of daughters who took another name) are hidden
  * and flagged. `common` holds the people who belong to more than one of the
  * families, such as a daughter of one family married into the other: the
- * families meet at them.
+ * families meet at them. `sides` gives everyone the place of their own family
+ * from left to right (0, 1, …), so the layout can keep each family on its own
+ * side of the couples that join them.
  */
-export function familySubtree(tree: FamilyTree, index: TreeIndex, names: string[]): FocusView & { common: Set<Id> } {
+export function familySubtree(
+  tree: FamilyTree,
+  index: TreeIndex,
+  names: string[],
+): FocusView & { common: Set<Id>; sides: Map<Id, number> } {
+  const chosen = [...new Set(names)];
   const include = new Set<Id>();
   const seen = new Map<Id, number>();
-  for (const name of new Set(names)) {
+  for (const name of chosen) {
     for (const id of familyMembers(tree, index, name)) {
       include.add(id);
       seen.set(id, (seen.get(id) ?? 0) + 1);
@@ -142,5 +149,51 @@ export function familySubtree(tree: FamilyTree, index: TreeIndex, names: string[
     ...partnersOf(tree, index, id),
     ...childrenOf(tree, index, id),
   ]);
-  return { ...view, common };
+  return { ...view, common, sides: familySides(tree, index, include, chosen) };
+}
+
+/**
+ * Each shown person's family (their own name, or for someone who married in,
+ * their partner's), and the families' order from left to right: families joined
+ * by a couple stand next to each other, with the wife's family on the left
+ * where the couples allow it.
+ */
+function familySides(tree: FamilyTree, index: TreeIndex, include: Set<Id>, names: string[]): Map<Id, number> {
+  const family = new Map<Id, number>();
+  for (const id of include) {
+    const own = names.indexOf(tree.persons[id].lastName.trim());
+    if (own >= 0) family.set(id, own);
+  }
+  for (const id of include) {
+    if (family.has(id)) continue;
+    const partner = partnersOf(tree, index, id).find((p) => family.has(p));
+    family.set(id, partner === undefined ? 0 : family.get(partner)!);
+  }
+
+  // Couples joining two families: [wife's family, husband's family].
+  const links: [number, number][] = [];
+  for (const u of Object.values(tree.unions)) {
+    const ps = u.partners.filter((p) => include.has(p));
+    if (ps.length !== 2 || family.get(ps[0]) === family.get(ps[1])) continue;
+    const [a, b] = tree.persons[ps[0]].gender === 'male' ? [ps[1], ps[0]] : ps;
+    links.push([family.get(a)!, family.get(b)!]);
+  }
+  const cost = (rank: number[]) =>
+    links.reduce((c, [w, h]) => c + 10 * (Math.abs(rank[w] - rank[h]) - 1) + (rank[w] > rank[h] ? 1 : 0), 0);
+  let best = names.map((_, i) => i);
+  if (links.length && names.length <= 7) {
+    let bestCost = cost(best);
+    const permute = (rest: number[], prefix: number[]) => {
+      if (!rest.length) {
+        const rank: number[] = [];
+        prefix.forEach((f, i) => (rank[f] = i));
+        const c = cost(rank);
+        if (c < bestCost) ((bestCost = c), (best = rank));
+        return;
+      }
+      rest.forEach((f, i) => permute([...rest.slice(0, i), ...rest.slice(i + 1)], [...prefix, f]));
+    };
+    permute(best, []);
+  }
+  return new Map([...family].map(([id, f]) => [id, best[f]]));
 }

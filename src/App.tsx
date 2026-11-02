@@ -96,7 +96,7 @@ export function App() {
   const family = chosenFamilies.length ? chosenFamilies : null;
   const focusRoot = viewMode !== 'all' && viewMode !== 'family' && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
   const view = useMemo(
-    (): { tree: FamilyTree; truncated: Set<Id>; common?: Set<Id> } =>
+    (): { tree: FamilyTree; truncated: Set<Id>; common?: Set<Id>; sides?: Map<Id, number> } =>
       family
         ? familySubtree(tree, index, family)
         : focusRoot && viewMode !== 'all' && viewMode !== 'family'
@@ -111,7 +111,8 @@ export function App() {
   // Keyed by the member list, so unrelated edits do not re-trigger zooming to the group.
   const memberKey = story ? JSON.stringify(story.members.filter((m) => tree.persons[m])) : '';
   const highlight = useMemo(() => (memberKey ? new Set<Id>(JSON.parse(memberKey)) : null), [memberKey]);
-  const layout = useMemo(() => computeLayout(view.tree), [view.tree]);
+  // With several families, each keeps to its own side of the couples joining them.
+  const layout = useMemo(() => computeLayout(view.tree, undefined, view.sides), [view.tree, view.sides]);
 
   const activePath = pathEnds && tree.persons[pathEnds.from] && tree.persons[pathEnds.to] ? pathEnds : null;
   const path = useMemo(
