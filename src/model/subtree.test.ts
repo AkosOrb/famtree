@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from './graph';
 import { generateTree, inLawTree, sampleTree } from './sample';
+import { computeLayout } from '../layout/layout';
 import { familyNames, familySubtree, focusSubtree, lineageSubtree } from './subtree';
 import { fullName } from './types';
 
@@ -135,6 +136,60 @@ describe('familySubtree', () => {
     expect(names(view.common)).toEqual(['Kovács István', 'Kovács Katalin', 'Nagy Péter', 'Tóth Éva'].sort());
     for (const name of ['Tóth Sándor', 'Nagy Bence', 'Nagy Anna', 'Kovács Máté']) {
       expect(names(Object.keys(view.tree.persons))).toContain(name);
+    }
+  });
+});
+
+describe('families side by side', () => {
+  it('keeps every family on its own side of the couples joining them', () => {
+    const t = inLawTree();
+    const view = familySubtree(t, buildIndex(t), ['Kovács', 'Tóth', 'Nagy']);
+    const layout = computeLayout(view.tree, undefined, view.sides);
+    const rows = new Map<number, { x: number; side: number }[]>();
+    for (const box of layout.persons.values()) {
+      const row = rows.get(box.y) ?? [];
+      row.push({ x: box.x, side: view.sides.get(box.id)! });
+      rows.set(box.y, row);
+    }
+    for (const row of rows.values()) {
+      const sides = row.sort((a, b) => a.x - b.x).map((r) => r.side);
+      expect(sides).toEqual([...sides].sort((a, b) => a - b));
+    }
+    // Families joined by a couple stand next to each other: Tóth and Nagy both meet the Kovács family.
+    const side = (name: string) => view.sides.get(Object.values(t.persons).find((p) => p.lastName === name)!.id)!;
+    expect(side('Kovács')).toBe(1);
+    expect(Math.abs(side('Tóth') - side('Nagy'))).toBe(2);
+  });
+
+  it('keeps large generated families apart in every row', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const t = generateTree(500, seed, 0.5);
+      const names = familyNames(t)
+        .slice(0, 3)
+        .map((f) => f.name);
+      const view = familySubtree(t, buildIndex(t), names);
+      const layout = computeLayout(view.tree, undefined, view.sides);
+      const x = (id: string) => layout.persons.get(id)!.x;
+      // Only the couples joining two families stand between them (several such
+      // couples in one row may interleave); everyone else keeps to their side.
+      const rows = new Map<number, { x: number; side: number }[]>();
+      for (const box of layout.persons.values()) {
+        if (view.common.has(box.id)) continue;
+        const row = rows.get(box.y) ?? [];
+        row.push({ x: box.x, side: view.sides.get(box.id)! });
+        rows.set(box.y, row);
+      }
+      for (const row of rows.values()) {
+        const sides = row.sort((a, b) => a.x - b.x).map((r) => r.side);
+        expect(sides).toEqual([...sides].sort((a, b) => a - b));
+      }
+      // Each partner of such a couple stands on their own family's side.
+      for (const u of Object.values(view.tree.unions)) {
+        const [a, b] = u.partners;
+        if (b === undefined || layout.persons.get(a)!.y !== layout.persons.get(b)!.y) continue;
+        const [sa, sb] = [view.sides.get(a)!, view.sides.get(b)!];
+        if (sa !== sb) expect(Math.sign(x(b) - x(a))).toBe(Math.sign(sb - sa));
+      }
     }
   });
 });
