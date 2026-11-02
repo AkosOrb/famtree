@@ -1129,3 +1129,60 @@ button.link {
 .canvas-3d .link-legend {
   bottom: 44px;
 }
+
+.family-picker > button {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-list {
+  right: auto;
+  min-width: 240px;
+  z-index: 20;
+}
+
+.family-list input[type='search'] {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+
+.family-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.family-list label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+  gap: 8px;
+  flex: none;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.family-list label:hover {
+  background: var(--accent-soft);
+}
+
+.family-list label span {
+  flex: 1;
+}
+
+.family-list label > input {
+  width: auto;
+  margin: 0;
+}
+
+.family-none {
+  padding: 6px 8px;
+  color: var(--muted);
+}

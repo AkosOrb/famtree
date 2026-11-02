@@ -112,18 +112,35 @@ export function familyNames(tree: FamilyTree): { name: string; count: number }[]
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'hu'));
 }
 
+/** One family: everyone who bears the family name, and their partners, who married into the family. */
+function familyMembers(tree: FamilyTree, index: TreeIndex, name: string): Set<Id> {
+  const members = new Set<Id>();
+  for (const p of Object.values(tree.persons)) if (p.lastName.trim() === name) members.add(p.id);
+  for (const id of [...members]) partnersOf(tree, index, id).forEach((p) => members.add(p));
+  return members;
+}
+
 /**
- * One family: everyone who bears the family name, and their partners, who
- * married into the family. Relatives outside it (the in-laws' parents, the
- * children of daughters who took another name) are hidden and flagged.
+ * One or more families together (see familyMembers). Relatives outside them (the
+ * in-laws' parents, the children of daughters who took another name) are hidden
+ * and flagged. `common` holds the people who belong to more than one of the
+ * families, such as a daughter of one family married into the other: the
+ * families meet at them.
  */
-export function familySubtree(tree: FamilyTree, index: TreeIndex, name: string): FocusView {
+export function familySubtree(tree: FamilyTree, index: TreeIndex, names: string[]): FocusView & { common: Set<Id> } {
   const include = new Set<Id>();
-  for (const p of Object.values(tree.persons)) if (p.lastName.trim() === name) include.add(p.id);
-  for (const id of [...include]) partnersOf(tree, index, id).forEach((p) => include.add(p));
-  return buildView(tree, include, (id) => [
+  const seen = new Map<Id, number>();
+  for (const name of new Set(names)) {
+    for (const id of familyMembers(tree, index, name)) {
+      include.add(id);
+      seen.set(id, (seen.get(id) ?? 0) + 1);
+    }
+  }
+  const common = new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
+  const view = buildView(tree, include, (id) => [
     ...parentsOf(tree, index, id),
     ...partnersOf(tree, index, id),
     ...childrenOf(tree, index, id),
   ]);
+  return { ...view, common };
 }

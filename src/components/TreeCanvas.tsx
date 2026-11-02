@@ -20,6 +20,8 @@ interface Props {
   path: PathStep[] | null;
   /** Persons to emphasise (e.g. the members of a family history card); others are dimmed. */
   highlight?: Set<Id> | null;
+  /** People where several families shown meet: their connections are drawn and they stand out. */
+  hubs?: Set<Id> | null;
   selectedId: Id | null;
   focus: Focus | null;
   fitNonce: number;
@@ -34,8 +36,20 @@ const MIN_FIT_ZOOM = 0.03;
 const AVATAR = 40;
 
 export function TreeCanvas(props: Props) {
-  const { tree, layout, truncated, focusRoot, onFocusOn, path, highlight, selectedId, focus, fitNonce, onSelect } =
-    props;
+  const {
+    tree,
+    layout,
+    truncated,
+    focusRoot,
+    onFocusOn,
+    path,
+    highlight,
+    hubs,
+    selectedId,
+    focus,
+    fitNonce,
+    onSelect,
+  } = props;
   const { onAddFirst } = props;
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
@@ -153,6 +167,18 @@ export function TreeCanvas(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, layout, size.width > 0]);
 
+  // Zoom to where the families meet when they are shown: the shared people and their relatives.
+  const fittedHubs = useRef<Set<Id> | null>(null);
+  useEffect(() => {
+    if (!hubs?.size || !size.width || fittedHubs.current === hubs) return;
+    const ids = new Set([...hubs].flatMap((id) => [id, ...directLinks(layout, id).map((l) => l.id)]));
+    const boxes = [...ids].map((id) => layout.persons.get(id)).filter((b): b is PersonBox => !!b);
+    if (!boxes.length) return;
+    fittedHubs.current = hubs;
+    fitBoxes(boxes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hubs, layout, size.width > 0]);
+
   // Zoom to a newly highlighted group once its members are laid out.
   const fittedHighlight = useRef<Set<Id> | null>(null);
   useEffect(() => {
@@ -167,13 +193,17 @@ export function TreeCanvas(props: Props) {
   const pathIds = useMemo(() => new Set(path?.map((s) => s.id)), [path]);
   const marked = path ? pathIds : highlight?.size ? highlight : null;
   const pathD = useMemo(() => (path ? pathGeometry(path, layout) : ''), [path, layout]);
-  const links = useMemo(() => (selectedId ? directLinks(layout, selectedId) : []), [layout, selectedId]);
-  // The selected person's connections, one path per kind, drawn along the tree's own lines.
+  // Whose connections are drawn: the selected person's, or else those of the people where the families meet.
+  const linked = useMemo(() => (selectedId ? [selectedId] : hubs ? [...hubs] : []), [selectedId, hubs]);
+  const links = useMemo(
+    () => linked.flatMap((from) => directLinks(layout, from).map((l) => ({ ...l, from }))),
+    [layout, linked],
+  );
+  // Those connections, one path per kind, drawn along the tree's own lines.
   const linkD = useMemo(() => {
     const d = { parent: '', partner: '', child: '' };
-    for (const l of links) d[l.relation] += pathGeometry([{ id: selectedId!, relation: null }, l], layout);
+    for (const l of links) d[l.relation] += pathGeometry([{ id: l.from, relation: null }, l], layout);
     return d;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [links, layout]);
 
   const grids = useMemo(() => {
@@ -225,7 +255,7 @@ export function TreeCanvas(props: Props) {
                 detailed={detailed}
                 truncated={truncated.has(box.id)}
                 isFocusRoot={box.id === focusRoot}
-                pathState={marked ? (marked.has(box.id) ? 'on' : 'off') : undefined}
+                pathState={marked ? (marked.has(box.id) ? 'on' : 'off') : hubs?.has(box.id) ? 'on' : undefined}
                 onSelect={onSelect}
                 onFocusOn={onFocusOn}
               />
@@ -243,10 +273,11 @@ export function TreeCanvas(props: Props) {
           )}
         </div>
       )}
-      {selectedId && <LinkLegend links={links} />}
+      {links.length > 0 && <LinkLegend links={links} />}
       <div className="status">
-        {count < Object.keys(tree.persons).length ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · {visiblePersons.length} látható
-        · {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
+        {count < Object.keys(tree.persons).length ? `${count} / ${Object.keys(tree.persons).length}` : count} személy ·{' '}
+        {visiblePersons.length} látható ·{' '}
+        {transform.k < 0.1 ? (transform.k * 100).toFixed(1) : Math.round(transform.k * 100)}%
       </div>
     </div>
   );
