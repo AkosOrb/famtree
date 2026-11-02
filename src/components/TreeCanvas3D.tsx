@@ -20,6 +20,8 @@ interface Props {
   onFocusOn: (id: Id) => void;
   path: PathStep[] | null;
   highlight?: Set<Id> | null;
+  /** People where several families shown meet: their connections are drawn and they stand out. */
+  hubs?: Set<Id> | null;
   selectedId: Id | null;
   focus: Focus | null;
   fitNonce: number;
@@ -62,7 +64,7 @@ const years = (p: Person) => {
  * labels on the nearest cards only.
  */
 export default function TreeCanvas3D(props: Props) {
-  const { tree, layout, truncated, focusRoot, onFocusOn, path, highlight, selectedId, focus, fitNonce, onSelect } =
+  const { tree, layout, truncated, focusRoot, onFocusOn, path, highlight, hubs, selectedId, focus, fitNonce, onSelect } =
     props;
   const { onAddFirst } = props;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -337,6 +339,7 @@ export default function TreeCanvas3D(props: Props) {
       const person = tree.persons[id];
       c.copy(byGender[person?.gender ?? 'unknown'] ?? byGender.unknown);
       if (id === selectedId || id === focusRoot) c.copy(accent).lerp(surface, 0.35);
+      else if (!marked && hubs?.has(id)) c.copy(accent).lerp(surface, 0.6);
       else if (marked && !marked.has(id)) c.lerp(bg, 0.75);
       s.cards!.setColorAt(i, c);
     });
@@ -344,19 +347,24 @@ export default function TreeCanvas3D(props: Props) {
     // Other lines step back while a path or group is shown.
     if (s.edges) (s.edges.material as THREE.LineBasicMaterial).opacity = marked ? 0.3 : 1;
     s.render();
-  }, [tree, layout3d, selectedId, focusRoot, marked]);
+  }, [tree, layout3d, selectedId, focusRoot, marked, hubs]);
 
-  const links = useMemo(() => (selectedId ? directLinks(layout, selectedId) : []), [layout, selectedId]);
+  // Whose connections are drawn: the selected person's, or else those of the people where the families meet.
+  const linked = useMemo(() => (selectedId ? [selectedId] : hubs ? [...hubs] : []), [selectedId, hubs]);
+  const links = useMemo(
+    () => linked.flatMap((from) => directLinks(layout, from).map((l) => ({ ...l, from }))),
+    [layout, linked],
+  );
 
   // Connections drawn as wide coloured lines along the tree's own lines: the relationship
-  // path, and the selected person's parents, partners and children.
+  // path, and the parents, partners and children of the selected person (or where the families meet).
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
     const host = hostRef.current!;
     const groups: { points: number[]; color: string; width: number }[] = [];
     const byRelation = { parent: [] as number[], partner: [] as number[], child: [] as number[] };
-    if (selectedId) for (const l of links) byRelation[l.relation].push(...layout3d.link(selectedId, l.id, l.relation));
+    for (const l of links) byRelation[l.relation].push(...layout3d.link(l.from, l.id, l.relation));
     for (const r of ['parent', 'partner', 'child'] as const) {
       groups.push({ points: byRelation[r], color: css(host, `--link-${r}`), width: 4 });
     }
@@ -388,7 +396,7 @@ export default function TreeCanvas3D(props: Props) {
       }
       s.render();
     };
-  }, [path, links, selectedId, layout3d]);
+  }, [path, links, layout3d]);
 
   /** Moves the camera smoothly so it looks at `target` from `eye`. */
   const flyTo = (target: THREE.Vector3, eye: THREE.Vector3) => {
@@ -496,6 +504,15 @@ export default function TreeCanvas3D(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
+  // Show where the families meet when they are shown: the shared people and their relatives.
+  useEffect(() => {
+    if (!hubs?.size) return;
+    const ids = new Set([...hubs].flatMap((id) => [id, ...directLinks(layout, id).map((l) => l.id)]));
+    const people = [...ids].map((id) => layout3d.persons.get(id)).filter((p) => !!p);
+    if (people.length) fitPeople(people);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hubs, layout3d]);
+
   // Show the whole relationship path or family-history group when it appears.
   useEffect(() => {
     if (!marked?.size) return;
@@ -528,7 +545,7 @@ export default function TreeCanvas3D(props: Props) {
         {count < Object.keys(tree.persons).length ? `${count} / ${Object.keys(tree.persons).length}` : count} személy · 3D
         <span className="hint-3d"> · húzás: forgatás · görgő: nagyítás · jobb gomb: mozgatás</span>
       </div>
-      {selectedId && <LinkLegend links={links} />}
+      {links.length > 0 && <LinkLegend links={links} />}
       <label className="rotate-3d">
         <input type="checkbox" checked={autoRotate} onChange={(e) => setAutoRotate(e.target.checked)} />
         Forgatás

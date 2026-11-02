@@ -12,7 +12,17 @@ describe('focusSubtree', () => {
     const view = focusSubtree(t, index, istvan, 1, 1);
     const names = Object.values(view.tree.persons).map(fullName).sort();
     expect(names).toEqual(
-      ['Kovács János', 'Szabó Mária', 'Kovács István', 'Tóth Éva', 'Kovács Katalin', 'Kovács Ferenc', 'Kovács Gábor', 'Horváth Lilla', 'Kovács Zsófia'].sort(),
+      [
+        'Kovács János',
+        'Szabó Mária',
+        'Kovács István',
+        'Tóth Éva',
+        'Kovács Katalin',
+        'Kovács Ferenc',
+        'Kovács Gábor',
+        'Horváth Lilla',
+        'Kovács Zsófia',
+      ].sort(),
     );
     // Gábor and Lilla have a hidden child, Katalin a hidden partner.
     const truncated = [...view.truncated].map((id) => fullName(t.persons[id])).sort();
@@ -40,7 +50,15 @@ describe('lineageSubtree', () => {
   it('shows only the direct ancestors in the ancestor view', () => {
     const view = lineageSubtree(t, index, id('Kovács Gábor'), 'ancestors', Infinity);
     expect(names(view)).toEqual(
-      ['Kovács Gábor', 'Kovács István', 'Tóth Éva', 'Kovács János', 'Szabó Mária', 'Tóth Sándor', 'Farkas Ilona'].sort(),
+      [
+        'Kovács Gábor',
+        'Kovács István',
+        'Tóth Éva',
+        'Kovács János',
+        'Szabó Mária',
+        'Tóth Sándor',
+        'Farkas Ilona',
+      ].sort(),
     );
     // No ⊕ for siblings or children left out on purpose.
     expect(view.truncated.size).toBe(0);
@@ -61,7 +79,15 @@ describe('lineageSubtree', () => {
     // Like the "around" view, the last generation keeps its partners (Lilla), but István's sister Katalin is left out.
     const view = lineageSubtree(t, index, id('Kovács István'), 'hourglass', 1);
     expect(names(view)).toEqual(
-      ['Kovács István', 'Tóth Éva', 'Kovács János', 'Szabó Mária', 'Kovács Gábor', 'Horváth Lilla', 'Kovács Zsófia'].sort(),
+      [
+        'Kovács István',
+        'Tóth Éva',
+        'Kovács János',
+        'Szabó Mária',
+        'Kovács Gábor',
+        'Horváth Lilla',
+        'Kovács Zsófia',
+      ].sort(),
     );
     for (const u of Object.values(view.tree.unions)) {
       [...u.partners, ...u.children].forEach((p) => expect(view.tree.persons[p]).toBeDefined());
@@ -73,7 +99,8 @@ describe('familySubtree', () => {
   it('shows everyone with the family name and their partners, and flags hidden relatives', () => {
     const t = inLawTree();
     expect(familyNames(t)[0]).toEqual({ name: 'Kovács', count: 7 });
-    const view = familySubtree(t, buildIndex(t), 'Kovács');
+    const view = familySubtree(t, buildIndex(t), ['Kovács']);
+    expect(view.common.size).toBe(0);
     const names = Object.values(view.tree.persons).map(fullName).sort();
     expect(names).toEqual(
       [
@@ -97,6 +124,17 @@ describe('familySubtree', () => {
     expect(view.truncated.has(byName('Kovács Ferenc'))).toBe(false);
     for (const u of Object.values(view.tree.unions)) {
       [...u.partners, ...u.children].forEach((p) => expect(view.tree.persons[p]).toBeDefined());
+    }
+  });
+
+  it('shows several families together and finds the people they share', () => {
+    const t = inLawTree();
+    const view = familySubtree(t, buildIndex(t), ['Kovács', 'Tóth', 'Nagy']);
+    const names = (ids: Iterable<string>) => [...ids].map((id) => fullName(t.persons[id])).sort();
+    // The couples linking the families: Éva (a Tóth) and István, Katalin and Péter (a Nagy).
+    expect(names(view.common)).toEqual(['Kovács István', 'Kovács Katalin', 'Nagy Péter', 'Tóth Éva'].sort());
+    for (const name of ['Tóth Sándor', 'Nagy Bence', 'Nagy Anna', 'Kovács Máté']) {
+      expect(names(Object.keys(view.tree.persons))).toContain(name);
     }
   });
 });

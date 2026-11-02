@@ -31,7 +31,7 @@ export interface Focus {
 }
 
 /**
- * 'all' = whole tree; 'family' = one family name and those who married in; otherwise the part
+ * 'all' = whole tree; 'family' = one or more family names and those who married in; otherwise the part
  * around the view's root person (see model/subtree.ts).
  */
 export type ViewMode = 'all' | 'family' | LineageMode;
@@ -82,17 +82,21 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [viewDepth, setViewDepth] = useState<ViewDepth>(3);
   const [viewRoot, setViewRoot] = useState<Id | null>(null);
-  const [viewFamily, setViewFamily] = useState<string | null>(null);
+  const [viewFamilies, setViewFamilies] = useState<string[]>([]);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [is3d, setIs3d] = useState(false);
   const [activeStory, setActiveStory] = useState<Id | null>(null);
 
   const index = useMemo(() => buildIndex(tree), [tree]);
   const families = useMemo(() => familyNames(tree), [tree]);
-  const family = viewMode === 'family' && viewFamily && families.some((f) => f.name === viewFamily) ? viewFamily : null;
+  const familyKey =
+    viewMode === 'family' ? JSON.stringify(viewFamilies.filter((n) => families.some((f) => f.name === n))) : '[]';
+  // Keyed by the names, so the families' view is only recomputed when the choice changes.
+  const chosenFamilies = useMemo(() => JSON.parse(familyKey) as string[], [familyKey]);
+  const family = chosenFamilies.length ? chosenFamilies : null;
   const focusRoot = viewMode !== 'all' && viewMode !== 'family' && viewRoot && tree.persons[viewRoot] ? viewRoot : null;
   const view = useMemo(
-    () =>
+    (): { tree: FamilyTree; truncated: Set<Id>; common?: Set<Id> } =>
       family
         ? familySubtree(tree, index, family)
         : focusRoot && viewMode !== 'all' && viewMode !== 'family'
@@ -100,6 +104,8 @@ export function App() {
           : { tree, truncated: new Set<Id>() },
     [tree, index, family, focusRoot, viewMode, viewDepth],
   );
+  // Where two or more families shown meet: their connections are drawn around these people.
+  const hubs = view.common?.size ? view.common : null;
 
   const story = activeStory ? storiesOf(tree)[activeStory] : undefined;
   // Keyed by the member list, so unrelated edits do not re-trigger zooming to the group.
@@ -245,13 +251,14 @@ export function App() {
     setFitNonce((n) => n + 1);
   }, []);
 
-  const changeView = (mode: ViewMode, depth: ViewDepth, familyName?: string) => {
+  const changeView = (mode: ViewMode, depth: ViewDepth, familyNames?: string[]) => {
     setViewMode(mode);
     setViewDepth(depth);
     if (mode === 'family') {
-      // The selected person's family, unless another one is picked; else the largest.
+      // The families picked; else those shown; else the selected person's family, or the largest.
       const selected = selectedId ? tree.persons[selectedId]?.lastName.trim() : undefined;
-      setViewFamily(familyName ?? family ?? (selected || families[0]?.name) ?? null);
+      const fallback = selected || families[0]?.name;
+      setViewFamilies(familyNames ?? family ?? (fallback ? [fallback] : []));
     } else if (mode !== 'all' && !focusRoot) setViewRoot(selectedId ?? Object.keys(tree.persons)[0] ?? null);
     setFitNonce((n) => n + 1);
   };
@@ -292,7 +299,7 @@ export function App() {
         onReplace={replaceTree}
         onFit={() => setFitNonce((n) => n + 1)}
         onError={setError}
-        viewMode={focusRoot || family ? viewMode : 'all'}
+        viewMode={focusRoot || viewMode === 'family' ? viewMode : 'all'}
         families={families}
         family={family}
         viewDepth={viewDepth}
@@ -331,6 +338,7 @@ export function App() {
               onFocusOn={focusOn}
               path={path}
               highlight={highlight}
+              hubs={hubs}
               selectedId={selectedId}
               focus={focus}
               fitNonce={fitNonce}
@@ -347,6 +355,7 @@ export function App() {
             onFocusOn={focusOn}
             path={path}
             highlight={highlight}
+            hubs={hubs}
             selectedId={selectedId}
             focus={focus}
             fitNonce={fitNonce}
