@@ -1005,6 +1005,7 @@ button.link {
   inset: 0;
   pointer-events: none;
   overflow: hidden;
+  transition: opacity 0.25s;
 }
 
 .label-3d {
