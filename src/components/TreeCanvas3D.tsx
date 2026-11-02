@@ -271,7 +271,12 @@ export default function TreeCanvas3D(props: Props) {
     s.render();
   }, [autoRotate]);
 
-  // Cards and lines: rebuilt when the layout changes.
+  /** Where each card stood before the last change of layout, so a new filter can move them over. */
+  const shownBefore = useRef<Map<Id, Person3D> | null>(null);
+
+  // Cards and lines: rebuilt when the layout changes. When the filter changes, the cards
+  // glide round the cylinders from where they stood to their new places, new ones grow in,
+  // and the lines and names come back once everyone has arrived.
   useEffect(() => {
     const s = sceneRef.current;
     if (!s) return;
@@ -305,18 +310,64 @@ export default function TreeCanvas3D(props: Props) {
     );
     cards.count = ids.length;
     const m = new THREE.Object3D();
-    ids.forEach((id, i) => {
-      const p = layout3d.persons.get(id)!;
-      m.position.set(p.x, p.y, p.z);
-      m.rotation.set(0, p.angle, 0);
-      m.scale.set(1, 1, 1);
-      m.updateMatrix();
-      cards.setMatrixAt(i, m.matrix);
-    });
+    /** Places the cards `t` of the way (0–1) from where they stood to their new places. */
+    const place = (t: number, from: Map<Id, Person3D> | null) => {
+      ids.forEach((id, i) => {
+        const p = layout3d.persons.get(id)!;
+        const q = from?.get(id);
+        if (q && t < 1) {
+          // Round the axis, not through it: angle, distance from the axis and height each move.
+          let da = p.angle - q.angle;
+          da -= Math.round(da / (2 * Math.PI)) * 2 * Math.PI;
+          const a = q.angle + da * t;
+          const r0 = Math.hypot(q.x, q.z);
+          const r = r0 + (Math.hypot(p.x, p.z) - r0) * t;
+          m.position.set(r * Math.sin(a), q.y + (p.y - q.y) * t, r * Math.cos(a));
+          m.rotation.set(0, a, 0);
+          m.scale.set(1, 1, 1);
+        } else {
+          m.position.set(p.x, p.y, p.z);
+          m.rotation.set(0, p.angle, 0);
+          const k = from && !q ? Math.max(0.001, t) : 1;
+          m.scale.set(k, k, k);
+        }
+        m.updateMatrix();
+        cards.setMatrixAt(i, m.matrix);
+      });
+      cards.instanceMatrix.needsUpdate = true;
+    };
+    const from = shownBefore.current;
+    shownBefore.current = layout3d.persons;
     s.root.add(cards);
     s.cards = cards;
     s.ids = ids;
-    s.render();
+    const labels = labelsRef.current!;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!from || still || ![...from.keys()].some((id) => layout3d.persons.has(id))) {
+      place(1, null);
+      s.render();
+      return;
+    }
+    const MORPH_MS = 700;
+    const start = performance.now();
+    let frame = 0;
+    const others = (visible: boolean) => {
+      for (const child of s.root.children) if (child !== cards) child.visible = visible;
+      labels.style.opacity = visible ? '' : '0';
+    };
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / MORPH_MS);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      place(eased, from);
+      others(t >= 1);
+      s.render();
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(frame);
+      others(true);
+    };
   }, [layout3d]);
 
   const pathIds = useMemo(() => new Set(path?.map((st) => st.id)), [path]);

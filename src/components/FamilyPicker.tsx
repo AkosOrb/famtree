@@ -36,7 +36,7 @@ export function FamilyPicker({ families, selected, onChange }: Props) {
   const label = selected.length ? selected.map((n) => `${n}`).join(', ') : 'Válassz családot';
 
   return (
-    <div className="picker family-picker" ref={ref}>
+    <div className="picker family-picker" ref={ref} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -55,7 +55,6 @@ export function FamilyPicker({ families, selected, onChange }: Props) {
             aria-label="Család keresése"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
           />
           <ul role="listbox" aria-multiselectable="true" aria-label="Családok">
             {shown.map((f) => (

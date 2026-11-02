@@ -46,8 +46,11 @@ export interface Layout3D {
   link: (from: Id, to: Id, relation: Relation) => number[];
 }
 
-/** Below this radius a tree is not wrapped into a full circle. */
-export const MIN_RADIUS = 600;
+/**
+ * Smallest cylinder. Above it the cylinder is just wide enough for the people shown, so the
+ * rings close around whatever the current filter leaves, a few families or the whole tree.
+ */
+export const MIN_RADIUS = 250;
 /**
  * Vertical stretch of the generations, so the stepped tower rises steeply. Only the room
  * between the rows is stretched: the cards keep their size, so the lines still meet them.
