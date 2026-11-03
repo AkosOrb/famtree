@@ -360,6 +360,11 @@ export default function TreeCanvas3D(props: Props) {
         cards.setMatrixAt(i, m.matrix);
       });
       cards.instanceMatrix.needsUpdate = true;
+      // three.js culls and picks the cards by a sphere around all of them, computed once and then
+      // kept: recompute it as they move, or after a change of filter the cards vanish when zoomed
+      // in on, and clicks on them miss.
+      cards.computeBoundingSphere();
+      cards.computeBoundingBox();
     };
     const from = shownBefore.current;
     shownBefore.current = layout3d.persons;
