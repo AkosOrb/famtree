@@ -89,6 +89,22 @@ button {
   cursor: pointer;
 }
 
+/* Menus are clicked, not typed in: no text caret blinking on them, nor text selected by a double click. */
+button,
+select,
+label {
+  caret-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  caret-color: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 button:hover:not(:disabled) {
   border-color: var(--accent);
 }
