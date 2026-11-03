@@ -98,6 +98,8 @@ export default function TreeCanvas3D(props: Props) {
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.autoRotateSpeed = 0.6;
+    // The wheel zooms towards the point under the cursor, so the cards looked at stay in view.
+    controls.zoomToCursor = true;
     // Never straight from above or below: generations read as rows only from the side.
     controls.minPolarAngle = Math.PI * 0.15;
     controls.maxPolarAngle = Math.PI * 0.85;
@@ -165,6 +167,8 @@ export default function TreeCanvas3D(props: Props) {
       });
     };
 
+    const lastEye = new THREE.Vector3(0, 0, 1e9);
+    const lastTarget = new THREE.Vector3();
     let frame = 0;
     let dirty = true;
     const render = () => {
@@ -177,18 +181,40 @@ export default function TreeCanvas3D(props: Props) {
         dirty = false;
         // Fog fades the far side of the cylinder so the near side stays readable.
         const { outerRadius: r, wrapped, height, shellRadius } = live.current.layout3d;
-        // Zooming towards the axis of a wrapped tree stops just outside the generation looked at.
-        if (wrapped) controls.minDistance = shellRadius(controls.target.y) + NODE_W;
-        // Distance from the camera to the nearest point of the column.
-        const nearest = Math.hypot(
-          Math.max(0, Math.hypot(camera.position.x, camera.position.z) - r),
+        // Zooming in stops just outside the generation looked at, so the camera never passes
+        // through the cards (the target is on the axis of a wrapped tree, on the arc of a partial one).
+        const t = controls.target;
+        controls.minDistance = Math.max(100, shellRadius(t.y) - Math.hypot(t.x, t.z) + NODE_W);
+        // The cards face outwards: the camera stays outside the column, so zooming towards the
+        // cursor stops in front of the card there instead of passing through it.
+        const inside = (p: THREE.Vector3) =>
+          Math.abs(p.y) < height / 2 + NODE_H && Math.hypot(p.x, p.z) < shellRadius(p.y) + NODE_W * 0.6;
+        if (!inside(camera.position)) {
+          lastEye.copy(camera.position);
+          lastTarget.copy(t);
+        } else if (inside(lastEye)) {
+          const least = shellRadius(camera.position.y) + NODE_W * 0.6;
+          const a = Math.atan2(camera.position.x, camera.position.z);
+          camera.position.set(Math.sin(a) * least, camera.position.y, Math.cos(a) * least);
+          camera.lookAt(t);
+        } else {
+          // Stop where the camera last was outside.
+          camera.position.copy(lastEye);
+          t.copy(lastTarget);
+          camera.lookAt(t);
+        }
+        // Distance from the camera to the axis of the column. Fog goes by depth, so starting it
+        // there fades only the far half of the cylinder, however close the camera comes: zooming
+        // in never fades the cards in front.
+        const axis = Math.hypot(
+          Math.hypot(camera.position.x, camera.position.z),
           Math.max(0, Math.abs(camera.position.y) - height / 2),
         );
         if (scene.fog instanceof THREE.Fog && !wrapped) {
           scene.fog.near = scene.fog.far = 1e9;
         } else if (scene.fog instanceof THREE.Fog) {
-          scene.fog.near = nearest + r * 0.6;
-          scene.fog.far = nearest + r * 2.2;
+          scene.fog.near = axis;
+          scene.fog.far = axis + r * 1.2;
         }
         renderer.render(scene, camera);
         updateLabels();
@@ -292,7 +318,6 @@ export default function TreeCanvas3D(props: Props) {
     s.scene.background = bg;
     s.scene.fog = new THREE.Fog(bg, 1, 2);
     s.controls.maxDistance = layout3d.outerRadius * 6 + 20000;
-    if (!layout3d.wrapped) s.controls.minDistance = 100;
 
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.BufferAttribute(layout3d.edges, 3));
